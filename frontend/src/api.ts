@@ -1,0 +1,44 @@
+// Booking API client for the dashboards. Talks to /api/v1 (proxied to the
+// stub in dev). Matches docs/contracts/booking-api.md.
+
+export interface QueueItem {
+  id: string;
+  position: number;
+  is_next: boolean;
+  patient_name: string;
+  type: string;
+  service_name: string;
+  slot_time: string;
+  status: string;
+}
+
+async function j<T>(res: Response): Promise<T> {
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json() as Promise<T>;
+}
+
+export const api = {
+  health: () => fetch("/health").then((r) => j<{ status: string }>(r)),
+
+  queue: (providerId = "prov_ade") =>
+    fetch(`/api/v1/appointments?provider_id=${encodeURIComponent(providerId)}`).then((r) =>
+      j<QueueItem[]>(r)
+    ),
+
+  closeVisit: (id: string, state: "done" | "follow_up" | "admitted") =>
+    fetch(`/api/v1/appointments/${id}/close`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state }),
+    }).then((r) => j<unknown>(r)),
+
+  services: () =>
+    fetch("/api/v1/services").then((r) =>
+      j<Array<{ id: string; name: string; fee: number; type: string }>>(r)
+    ),
+};
+
+export const naira = (kobo: number) => "₦" + (kobo / 100).toLocaleString("en-NG");
+
+export const timeOf = (iso: string) =>
+  new Date(iso).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true });

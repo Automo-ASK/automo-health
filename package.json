@@ -1,0 +1,27 @@
+{
+  "name": "automo-health",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Automo Health V1 - scheduling and patient-flow over WhatsApp, USSD, and SMS.",
+  "workspaces": [
+    "frontend",
+    "channels/whatsapp",
+    "backend-stub"
+  ],
+  "scripts": {
+    "dev": "concurrently -n stub,whatsapp,frontend -c green,cyan,magenta \"npm:dev:stub\" \"npm:dev:whatsapp\" \"npm:dev:frontend\"",
+    "dev:stub": "npm run dev -w backend-stub",
+    "dev:whatsapp": "npm run dev -w channels/whatsapp",
+    "dev:frontend": "npm run dev -w frontend",
+    "provision": "npm run provision -w channels/whatsapp",
+    "evolution:up": "docker compose up -d",
+    "evolution:down": "docker compose down",
+    "evolution:logs": "docker compose logs -f evolution-api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
