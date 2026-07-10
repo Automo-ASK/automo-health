@@ -1,6 +1,6 @@
 # Automo Health — Backend
 
-FastAPI service for booking, slots, appointments, and payments (Paystack).
+A FastAPI service for booking, slots, appointments, and payments (Paystack).
 
 ## Stack
 
