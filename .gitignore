@@ -39,3 +39,6 @@ Thumbs.db
 
 # evolution qr scratch
 *.qr.png
+
+# misc
+*context

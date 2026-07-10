@@ -1,6 +1,36 @@
 import enum
 
 
+class ChannelType(str, enum.Enum):
+    WHATSAPP = "whatsapp"
+    SMS = "sms"
+    USSD = "ussd"
+
+
+class Language(str, enum.Enum):
+    EN = "en"
+    PIDGIN = "pidgin"
+    YO = "yo"
+
+
+class Intent(str, enum.Enum):
+    BOOK = "book"
+    RESCHEDULE = "reschedule"
+    CANCEL = "cancel"
+    QUERY = "query"
+    UNKNOWN = "unknown"
+
+
+class SuggestedAction(str, enum.Enum):
+    SHOW_SERVICES = "show_services"
+    SHOW_SLOTS = "show_slots"
+    CONFIRM_BOOKING = "confirm_booking"
+    AWAITING_PAYMENT = "awaiting_payment"
+    RESCHEDULE = "reschedule"
+    CANCEL_BOOKING = "cancel_booking"
+    HUMAN_HANDOFF = "human_handoff"
+
+
 class SlotStatus(str, enum.Enum):
     """Lifecycle of a bookable slot."""
 
