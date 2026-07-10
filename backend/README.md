@@ -1,56 +1,90 @@
-# backend — booking core & payments
+# Automo Health — Backend
 
-**Owner: Koded** · Stack: FastAPI (Python) + PostgreSQL + Celery · Port: `8000` (suggested)
+FastAPI service for booking, slots, appointments, and payments (Paystack).
 
-> This directory is the charter for the real backend. It's yours to build. The
-> `backend-stub/` at the repo root already implements the contract with fake
-> data so everyone is unblocked — replace it here, keeping the **same paths**.
+## Stack
 
-## You own the source of truth
+- **FastAPI** — HTTP API
+- **SQLAlchemy 2.0** + **Alembic** — ORM & migrations (Postgres)
+- **Celery** + **Redis** — slot hold-and-expiry, booking expiry (Day 2)
+- **Paystack** — payment provider
 
-Everything real lives here: slots, holds, bookings, payments, reconciliation,
-appointment lifecycle, notification hooks. The AI and channels call you; they
-never invent a slot, a fee, or a confirmation.
-
-## The contract you implement
-
-`docs/contracts/booking-api.md` — **locked day 1**. The stub matches it exactly;
-your job is to make it real. If a change is needed, raise it at standup and
-update the contract first.
-
-Key rules baked into the contract (don't drift):
-- Money in **kobo** (int). Times in **WAT (+01:00)**.
-- Slot locking prevents double-booking; a held slot is exclusive until paid or expired.
-- Hold expiry 10–15 min (Celery) releases unpaid holds.
-- Payment confirms **only on exact-amount match** via webhook — never the AI/channel.
-  Underpayment → notice, no confirm. Overpayment → confirm + flag.
-- `done` fires only after consult + meds + next appointment are settled; the
-  next-appointment step sits before `done`.
-
-## Build from the PRD data model
-
-PRD §12 (`C:\Users\USER\Downloads\Automo_Health_V1_PRD.docx`): Facility, Provider,
-Service, Slot, Patient, Appointment, Payment, LabTest, EmergencyRequest,
-Conversation, Notification.
-
-## Suggested structure
+## Layout
 
 ```
-backend/
-├── pyproject.toml
-├── app/
-│   ├── main.py            FastAPI app
-│   ├── api/v1/            services, slots, appointments, payments routers
-│   ├── models/           SQLAlchemy models (PRD §12)
-│   ├── schemas/          Pydantic request/response (mirror the contract)
-│   ├── services/         slots engine, booking, payments, reconciliation
-│   ├── workers/          Celery: hold expiry, reminders
-│   └── db.py
-└── alembic/              migrations
+app/
+  main.py            # FastAPI app + /health
+  core/
+    config.py        # settings (pydantic-settings, reads .env)
+    database.py      # engine + get_db() session dependency
+    celery_app.py    # Celery app + beat schedule (Day 2 tasks)
+  models/            # SQLAlchemy models (the Postgres schema)
+    enums.py         # slot/booking/appointment/payment statuses
+  schemas/           # Pydantic request/response contracts
+  api/
+    __init__.py      # aggregates all routers under /api/v1
+    routes/          # slots, bookings, appointments, payments
+alembic/             # migration environment + versions
 ```
 
-## Sprint
+## Setup
 
-Day 1 schema + FastAPI scaffold + publish/confirm contract · Day 2 slots engine +
-hold/expiry · Day 3 payments (Squad/Paystack, virtual accounts) · Day 4 webhooks +
-reconciliation + notification hooks · Day 5 appointment lifecycle + doctor actions.
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate   # if not already present
+pip install -r requirements.txt
+cp .env.example .env        # then fill in DATABASE_URL + Paystack keys
+```
+
+## Database migrations
+
+```bash
+alembic upgrade head                        # apply migrations
+alembic revision --autogenerate -m "msg"    # create a new migration from model changes
+```
+
+## Run
+
+```bash
+uvicorn app.main:app --reload
+```
+
+- API docs (Swagger): http://localhost:8000/docs
+- OpenAPI spec: http://localhost:8000/openapi.json
+- Health: http://localhost:8000/health
+
+## Data model
+
+`patients`, `providers`, `services`, `slots`, `bookings`, `appointments`, `payments`.
+
+- **Slot** lifecycle: `open → held → booked` (or back to `open` on hold expiry);
+  carries `hold_expires_at` and a `version_id` for optimistic locking.
+- **Booking** is created as `pending_payment`, snapshots the price, and has an
+  `expires_at` deadline. On successful payment it becomes `confirmed`, the slot
+  flips to `booked`, and an **Appointment** is created.
+- **Payment** brokers a Paystack transaction (`reference`, `authorization_url`),
+  reconciled via verify + webhook.
+- Money is stored as integer **minor units** (kobo for NGN).
+
+## Celery worker
+
+The hold-and-expiry sweeps run under Celery beat (schedule in
+`app/core/celery_app.py`). With Redis running:
+
+```bash
+celery -A app.core.celery_app.celery_app worker --beat --loglevel=info
+```
+
+- `app.tasks.slots.release_expired_holds` — returns standalone expired holds to OPEN
+- `app.tasks.bookings.expire_unpaid_bookings` — expires unpaid bookings, abandons
+  their payment, releases the slot
+
+## Status
+
+**Day 1 (done):** Postgres schema, FastAPI scaffold, published API contract.
+
+**Day 2 (done):** slots/availability engine (open/held/booked) with row-level slot
+locking (`SELECT ... FOR UPDATE` + `version_id`) and Celery hold-and-expiry; create
+booking as `pending_payment` (snapshots price, holds slot, initializes Paystack).
+Verified end-to-end against Neon, incl. double-booking rejection (`409`) and both
+expiry sweeps.

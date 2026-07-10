@@ -1,4 +1,4 @@
-# dependencies
+# --- Node / frontend / channels ---
 node_modules/
 .pnp
 .pnp.js
@@ -7,6 +7,15 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+
+# --- Python / backend / ai-service ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # env
 .env
@@ -22,6 +31,7 @@ npm-debug.log*
 .idea/
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 Thumbs.db
 
 # docker volume dumps
