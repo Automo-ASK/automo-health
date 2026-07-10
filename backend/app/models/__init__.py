@@ -4,12 +4,17 @@ so that Alembic autogeneration and ``create_all`` can see them."""
 from app.models.appointment import Appointment
 from app.models.base import Base
 from app.models.booking import Booking
+from app.models.conversation import Conversation
 from app.models.enums import (
     AppointmentStatus,
     BookingStatus,
+    ChannelType,
+    Intent,
+    Language,
     PaymentProvider,
     PaymentStatus,
     SlotStatus,
+    SuggestedAction,
 )
 from app.models.patient import Patient
 from app.models.payment import Payment
@@ -26,9 +31,14 @@ __all__ = [
     "Booking",
     "Appointment",
     "Payment",
+    "Conversation",
     "SlotStatus",
     "BookingStatus",
     "AppointmentStatus",
     "PaymentStatus",
     "PaymentProvider",
+    "ChannelType",
+    "Language",
+    "Intent",
+    "SuggestedAction",
 ]

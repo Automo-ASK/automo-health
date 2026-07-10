@@ -36,6 +36,17 @@ class Settings(BaseSettings):
     default_currency: str = "NGN"
     paystack_callback_url: str = "http://localhost:8000/api/v1/payments/callback"
 
+    # Africa's Talking
+    at_username: str = "sandbox"
+    at_api_key: str = "changeme"
+    at_sender_id: str = "AUTOMO"
+    at_shortcode: str = "*384*1234#"
+
+    # Gemini AI
+    google_api_key: str = "changeme"
+    gemini_model: str = "gemini-2.5-pro"
+    ai_max_history_turns: int = 10
+
 
 @lru_cache
 def get_settings() -> Settings:
