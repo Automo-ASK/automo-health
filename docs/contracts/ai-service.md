@@ -1,128 +1,84 @@
-# AI Conversation Service Contract — v1 (LOCKED Day 1)
+# AI Conversation Service Contract — v1 (as published by Adam)
 
-Owner: **Adam**. Consumed by: WhatsApp service (Quadri) and SMS service (Adam).
+Owner: **Adam**. Consumed by: WhatsApp service (Quadri) and SMS (Adam).
 
-> Built once, called twice. WhatsApp and SMS both send raw patient text here and
-> get back structured intent + entities + a suggested reply. **The AI never owns
-> the truth** — slots, fees, holds, payments, and confirmations come from the
-> Booking API. The model handles language and phrasing only.
+> Built once, called by both channels. The AI owns language + intent + phrasing;
+> the booking backend is the single source of truth for slots, fees, and payment
+> confirmation. Reference implementation: `backend/app/services/ai_service.py`
+> (Gemini 2.5 Pro) and schema `backend/app/schemas/ai_service.py`.
 >
-> During days 1–2 the WhatsApp service codes against the **stub client** baked
-> into `apps/whatsapp-service` (deterministic canned interpretation). Day 2 Adam
-> publishes the real service at the paths below and we swap the client's base URL.
+> The AI service is currently mounted **inside the backend** app, so its base URL
+> is the backend base URL. WhatsApp uses a local stub with the same shape until
+> `AI_SERVICE_URL` is pointed at it.
 
-Base URL (real service): `http://localhost:3003` (TBD by Adam)
-Prefix: `/ai/v1`
+Endpoint: `POST {base}/api/v1/ai/interpret`
 
----
-
-## Interpret a message
-
-`POST /ai/v1/interpret`
-
-Request:
+## Request
 
 ```json
 {
-  "channel": "whatsapp",
   "message": "abeg I wan see doctor tomorrow morning",
-  "conversation": {
-    "id": "conv_123",
-    "language": "pcm",
-    "state": { "intent": "book", "entities": { "service": "consultation" } },
-    "history": [
-      { "role": "user", "text": "hello" },
-      { "role": "assistant", "text": "Hi! How can I help you today?" }
-    ]
-  }
+  "channel": "whatsapp",
+  "conversation_id": "wa_2348012345678",
+  "history": [
+    { "role": "user", "content": "hello" },
+    { "role": "assistant", "content": "Hi! How can I help you today?" }
+  ],
+  "language_hint": null
 }
 ```
 
-- `conversation` may be `null` on the first message.
 - `channel` ∈ `whatsapp | sms | ussd`.
+- `history` — prior turns, most recent last, capped ~10 by the caller.
+- `language_hint` — optional prior language (e.g. a USSD language choice); else `null`.
 
-Response:
+## Response
 
 ```json
 {
-  "language": "pcm",
   "intent": "book",
-  "confidence": 0.91,
+  "language": "pidgin",
   "entities": {
-    "service": "consultation",
-    "provider": null,
-    "preferred_day": "2026-07-10",
+    "service_type": "consultation",
+    "provider_name": null,
+    "preferred_day": "tomorrow",
     "preferred_time": "morning",
-    "patient_name": null
+    "patient_name": null,
+    "appointment_id": null
   },
-  "missing": ["patient_name"],
   "reply": "No wahala 👍 Which name I go put for the booking?",
-  "needs_backend": false,
-  "handoff": false
+  "confidence": 0.91,
+  "needs_clarification": true,
+  "suggested_action": "show_slots"
 }
 ```
 
 Field meanings:
 
-- `intent` ∈ `book | reschedule | cancel | question | greeting | unknown`.
-- `language` — BCP-47-ish: `en | pcm (Pidgin) | yo | ha | ig`. Detected per
-  message; supports code-switching. Reply is in the **same** language.
-- `entities` — extracted so far; `null` where not yet known.
-- `missing` — ordered list of entities still needed to complete the intent. The
-  channel asks for **one at a time**, in this order.
-- `reply` — human, warm, plain phrasing to send back. **Ask for at most one
-  missing thing.** May be overridden by the channel when it needs to inject real
-  backend data (slots/fees) — see next section.
-- `needs_backend` — `true` when the next step requires real data (e.g. show
-  slots, quote a fee). The channel then calls the Booking API and calls
-  `render` below to phrase the result.
-- `handoff` — `true` when the model failed twice / user asked for a human.
+- `intent` ∈ `book | reschedule | cancel | query | unknown`.
+- `language` ∈ `en | pidgin | yo` (Lagos-first; more added later). Detected per
+  message; the reply is in the same language. Handles code-switching.
+- `entities` — extracted so far; `null` where unknown. `service_type` ∈
+  `consultation | lab_test | virtual`.
+- `reply` — warm, concise message to send back, in the detected language. Never
+  contains an invented slot time, fee, or payment confirmation.
+- `confidence` — 0.0–1.0.
+- `needs_clarification` — `true` when the reply asks for more info before acting.
+- `suggested_action` — hint to the channel for the next step (may be `null`):
+  `show_services | show_slots | confirm_booking | awaiting_payment | reschedule |
+  cancel_booking | human_handoff`.
 
----
+## Guardrails (enforced in the service)
 
-## Render a reply from backend facts
+- Never invents/assumes/confirms a slot; never states a fee not returned by the
+  backend; never confirms a payment (only the webhook does); no medical advice.
+- On failure the service returns a safe fallback reply with
+  `suggested_action: "human_handoff"` — it never raises, so channels never hang.
 
-When `needs_backend` is true, the channel fetches real data and asks the AI to
-phrase it (so numbers are never invented):
+## How the channel uses it
 
-`POST /ai/v1/render`
-
-```json
-{
-  "language": "pcm",
-  "template": "offer_slots",
-  "data": {
-    "service": "General Consultation",
-    "slots": [
-      { "label": "Tomorrow 9:00am", "id": "slot_a1" },
-      { "label": "Tomorrow 9:20am", "id": "slot_a2" }
-    ]
-  }
-}
-```
-
-`template` ∈ `offer_slots | quote_fee | payment_link | payment_account |
-confirmed | slot_taken | expired | reschedule_done | cancelled | fallback_menu`.
-
-Response: `{ "reply": "I see two times tomorrow: 9:00am or 9:20am. Which one?" }`
-
----
-
-## Guardrails (enforced by the service)
-
-- Never state availability, a fee, or a confirmation that did not come from
-  `render` `data`. No fabricated slots, prices, or "you're booked".
-- No medical advice or triage. Scheduling only.
-- On low confidence twice in a row → `handoff: true` or a `fallback_menu`.
-- If the service is down, the channel falls back to a minimal guided path;
-  booking must still work.
-
----
-
-## Stub behaviour (Quadri's local client, days 1–2)
-
-The WhatsApp service ships a stub implementing this contract deterministically:
-greeting → `greeting`; anything with "book/appointment/see doctor" → `book` with
-`needs_backend: true`; otherwise `unknown`. This lets the WhatsApp flow be built
-before Adam's model is live, then swapped by pointing `AI_SERVICE_URL` at the
-real service.
+1. Send the inbound message + recent history → get `intent`, `entities`, `reply`.
+2. If `suggested_action` needs real data (`show_services`, `show_slots`, …),
+   call the **Booking API** for the facts, then send them (Day 3+). Until then,
+   send `reply` as-is.
+3. Persist the turn to conversation state so the patient never repeats themselves.

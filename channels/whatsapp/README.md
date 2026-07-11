@@ -51,5 +51,6 @@ Baileys connection bugs. See root README for the no-phone webhook test.
 
 ## Sprint
 
-Day 1 connect + echo/menu ✅ · Day 2 conversation state + intent · Day 3 booking
-happy path · Day 4 pay link + webhook back into thread.
+Day 1 connect + echo/menu ✅ · Day 2 per-thread conversation state + intent via the
+AI service (stub, swap-ready to Adam's live `/api/v1/ai/interpret`) ✅ · Day 3 booking
+happy path (wire `suggested_action` → real slots) · Day 4 pay link + webhook back into thread.

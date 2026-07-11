@@ -1,6 +1,13 @@
 # ai-service — shared conversational AI
 
-**Owner: Adam** · Stack: Python (LLM + function-calling) · Port: `3003` (suggested)
+**Owner: Adam** · Stack: Python (Gemini 2.5 Pro) · Port: served by the backend
+
+> ⚠️ **Where the code actually lives:** Adam implemented this **inside the
+> backend app**, not here — see `backend/app/services/ai_service.py`,
+> `backend/app/schemas/ai_service.py`, and the route
+> `backend/app/api/routes/ai_service.py` (`POST /api/v1/ai/interpret`). This
+> directory is kept as the charter/spec only. The published contract is
+> `docs/contracts/ai-service.md`.
 
 > Charter for the shared AI service. Build it **once** — WhatsApp and SMS both
 > call it. It is *not* built twice. Until it's live, `channels/whatsapp` uses a

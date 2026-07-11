@@ -1,6 +1,13 @@
 # channels/ussd-sms — USSD & SMS channels + notifications
 
-**Owner: Adam** · Stack: Africa's Talking (USSD + SMS) · Port: `3004` (suggested)
+**Owner: Adam** · Stack: Africa's Talking (USSD + SMS) · Port: served by the backend
+
+> ⚠️ **Where the code actually lives:** Adam implemented USSD + SMS **inside the
+> backend app**, not here — see `backend/app/api/routes/ussd.py`,
+> `backend/app/api/routes/sms.py`, `backend/app/services/africastalking.py`, and
+> `backend/app/services/ussd_session.py`. Webhooks:
+> `POST /api/v1/channels/ussd` and `POST /api/v1/channels/sms/inbound`. This
+> directory is kept as the charter/spec only.
 
 > Charter for the USSD and SMS channels and the outbound notification sender.
 > Mirrors `channels/whatsapp` (Quadri's) — same Booking API + AI service, different

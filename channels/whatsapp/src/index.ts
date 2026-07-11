@@ -72,6 +72,10 @@ app.post("/webhook/evolution", async (req: Request, res: Response) => {
     for (const msg of payloads) {
       const parsed = parseMessage(msg);
       if (!parsed) continue;
+      if (isDuplicate(parsed.id)) {
+        log("dup  ×", parsed.jid, parsed.id); // Baileys/Evolution can redeliver
+        continue;
+      }
       log("in <-", parsed.jid, JSON.stringify(parsed.text));
       const answer = await handleIncoming(parsed.jid, parsed.text);
       await sendText(parsed.jid, answer);
@@ -83,6 +87,7 @@ app.post("/webhook/evolution", async (req: Request, res: Response) => {
 });
 
 interface ParsedMsg {
+  id: string;
   jid: string;
   text: string;
 }
@@ -100,7 +105,18 @@ function parseMessage(msg: any): ParsedMsg | null {
     m.ephemeralMessage?.message?.conversation ??
     "";
   if (!text.trim()) return null;
-  return { jid, text };
+  return { id: key.id ?? `${jid}:${Date.now()}`, jid, text };
+}
+
+// Small in-memory dedupe of processed message ids (WhatsApp can redeliver).
+const seen = new Set<string>();
+const seenOrder: string[] = [];
+function isDuplicate(id: string): boolean {
+  if (seen.has(id)) return true;
+  seen.add(id);
+  seenOrder.push(id);
+  if (seenOrder.length > 500) seen.delete(seenOrder.shift()!);
+  return false;
 }
 
 function handleErr(res: Response, err: unknown, code: string) {
