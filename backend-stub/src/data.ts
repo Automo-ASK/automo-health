@@ -124,7 +124,9 @@ export const payments: Payment[] = [];
 let seq = 0;
 export const nextId = (prefix: string) => `${prefix}_${(++seq).toString().padStart(3, "0")}`;
 
-// Generate open consultation slots for today + next 3 days, 09:00–12:40.
+// Generate open slots for today + next 3 days, for every service:
+// consultations 09:00–12:40 per doctor, lab tests 09:00–12:45 at the lab
+// desk, virtual follow-ups 14:00–15:45 with Dr. Olamide.
 (function seedSlots() {
   const doctors = providers.filter((p) => p.role === "doctor");
   for (let day = 0; day < 4; day++) {
@@ -142,6 +144,30 @@ export const nextId = (prefix: string) => `${prefix}_${(++seq).toString().padSta
             status: "open",
           });
         }
+      }
+    }
+    for (let h = 9; h < 13; h++) {
+      for (const m of [0, 15, 30, 45]) {
+        slots.push({
+          id: nextId("slot"),
+          provider_id: "prov_lab",
+          service_id: "svc_lab_malaria",
+          start_time: watISO(base, h, m),
+          duration_minutes: 15,
+          status: "open",
+        });
+      }
+    }
+    for (let h = 14; h < 16; h++) {
+      for (const m of [0, 15, 30, 45]) {
+        slots.push({
+          id: nextId("slot"),
+          provider_id: "prov_ola",
+          service_id: "svc_followup",
+          start_time: watISO(base, h, m),
+          duration_minutes: 15,
+          status: "open",
+        });
       }
     }
   }

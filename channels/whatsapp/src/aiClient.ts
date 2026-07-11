@@ -87,12 +87,27 @@ const GREET_RE = /\b(hi|hello|hey|howfa|how far|good\s*(morning|afternoon|evenin
 const BOOK_RE = /\b(book|appointment|see (a )?doctor|consult|register|slot|checkup|check\s?up|test|lab)\b/i;
 const CANCEL_RE = /\b(cancel|no longer|can't make|cant make)\b/i;
 const RESCHED_RE = /\b(reschedule|change|move|postpone|shift)\b/i;
+// A patient describing how they feel IS a booking request — a receptionist
+// wouldn't ask "do you want to book?", she'd start finding them a doctor.
+const SYMPTOM_RE =
+  /\b(sick|unwell|fever|feverish|headache|pain|hurt(s|ing)?|malaria|typhoid|cough|vomit|dizzy|rash|body dey hot|no feel well|not feeling (well|fine))\b/i;
 
 function detectService(text: string): string | null {
   if (/\b(lab|test|malaria|blood|scan)\b/i.test(text)) return "lab_test";
   if (/\b(follow|virtual|video|online)\b/i.test(text)) return "virtual";
   if (/\b(consult|doctor|checkup|check\s?up|appointment)\b/i.test(text)) return "consultation";
   return null;
+}
+
+function detectDay(text: string): string | null {
+  if (/\btoday\b/i.test(text)) return "today";
+  if (/\b(tomorrow|tomoro|2moro)\b/i.test(text)) return "tomorrow";
+  return null;
+}
+
+function detectTime(text: string): string | null {
+  const m = text.match(/\b(morning|afternoon|evening|night|\d{1,2}\s*(?:am|pm))\b/i);
+  return m ? m[1].toLowerCase() : null;
 }
 
 function localStub(message: string): AIResponse {
@@ -117,15 +132,35 @@ function localStub(message: string): AIResponse {
       suggested_action: "reschedule",
     };
   }
+  if (SYMPTOM_RE.test(text) && !BOOK_RE.test(text)) {
+    return {
+      ...base,
+      intent: "book",
+      entities: {
+        ...emptyEntities(),
+        service_type: "consultation",
+        preferred_day: detectDay(text),
+        preferred_time: detectTime(text),
+      },
+      reply: "Sorry to hear you're not feeling well 🙏 Let's get you in to see a doctor.",
+      needs_clarification: false,
+      suggested_action: "show_slots",
+    };
+  }
   if (BOOK_RE.test(text)) {
     const service = detectService(text);
     if (service) {
       return {
         ...base,
         intent: "book",
-        entities: { ...emptyEntities(), service_type: service },
-        reply: "Great — let's get that booked. What day and time works best for you?",
-        needs_clarification: true,
+        entities: {
+          ...emptyEntities(),
+          service_type: service,
+          preferred_day: detectDay(text),
+          preferred_time: detectTime(text),
+        },
+        reply: "Great — let's get that sorted for you.",
+        needs_clarification: false,
         suggested_action: "show_slots",
       };
     }

@@ -33,8 +33,9 @@ src/
 ├── provision.ts      `npm run provision` — link the WhatsApp number (QR)
 ├── aiClient.ts       AI service client + local stub
 ├── backend.ts        Booking API client
-├── conversation.ts   per-thread state (in-memory, day 1)
-└── handler.ts        the message flow
+├── conversation.ts   per-thread state + booking-flow stage (in-memory)
+├── messages.ts       localized templates (en/pidgin/yo) for anything with real data
+└── handler.ts        the message flow: AI intent → services → slots → hold
 ```
 
 ## Run
@@ -53,4 +54,6 @@ Baileys connection bugs. See root README for the no-phone webhook test.
 
 Day 1 connect + echo/menu ✅ · Day 2 per-thread conversation state + intent via the
 AI service (stub, swap-ready to Adam's live `/api/v1/ai/interpret`) ✅ · Day 3 booking
-happy path (wire `suggested_action` → real slots) · Day 4 pay link + webhook back into thread.
+happy path on stubs (services → slots → name → hold, `pending_payment`) + localized
+templates en/pidgin (+yo best-effort, polish on day 6) ✅ · Day 4 pay link + webhook
+back into thread.

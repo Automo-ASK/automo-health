@@ -5,6 +5,7 @@
 // so a later swap to the shared store is mechanical. WhatsApp is stateful across
 // messages: the patient never has to repeat themselves.
 import { config } from "./config.js";
+import type { Service, Slot } from "./backend.js";
 
 export type Role = "user" | "assistant";
 
@@ -13,13 +14,51 @@ export interface Turn {
   content: string;
 }
 
+// Where the patient is in the booking happy path. The numbered lists we last
+// showed are kept so a bare "2" reply resolves without a round-trip to the AI.
+export type BookingStage =
+  | "idle"
+  | "choosing_service"
+  | "choosing_slot"
+  | "awaiting_name"
+  | "held";
+
+export interface BookingFlow {
+  stage: BookingStage;
+  service: Service | null;
+  offeredSlots: Slot[];
+  chosenSlot: Slot | null;
+  patientName: string | null;
+  appointmentId: string | null;
+  offeredServices: Service[];
+}
+
 export interface ConversationState {
   id: string; // stable per thread; becomes the backend conversation_id later
   jid: string; // full WhatsApp JID, e.g. 2348012345678@s.whatsapp.net
   phone: string; // bare MSISDN
   language: string; // last detected language (en | pidgin | yo)
   history: Turn[]; // full short-term memory (capped)
+  booking: BookingFlow;
   lastMessageAt: string | null;
+}
+
+export function freshBooking(): BookingFlow {
+  return {
+    stage: "idle",
+    service: null,
+    offeredServices: [],
+    offeredSlots: [],
+    chosenSlot: null,
+    patientName: null,
+    appointmentId: null,
+  };
+}
+
+/** Reset the flow but remember the patient's name for their next booking. */
+export function resetBooking(c: ConversationState): void {
+  const name = c.booking.patientName;
+  c.booking = { ...freshBooking(), patientName: name };
 }
 
 const store = new Map<string, ConversationState>();
@@ -33,6 +72,7 @@ export function getConversation(jid: string): ConversationState {
       phone: jid.split("@")[0],
       language: "en",
       history: [],
+      booking: freshBooking(),
       lastMessageAt: null,
     };
     store.set(jid, c);
