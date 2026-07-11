@@ -85,6 +85,11 @@ export async function createAppointment(input: {
   }
 }
 
+/** Releases a held/booked slot back to open (patient changed their mind). */
+export async function cancelAppointment(id: string): Promise<void> {
+  await http.post(`/api/v1/appointments/${id}/cancel`);
+}
+
 /** ₦ display from kobo. */
 export function naira(kobo: number): string {
   return "₦" + (kobo / 100).toLocaleString("en-NG");

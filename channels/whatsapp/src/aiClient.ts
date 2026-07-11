@@ -110,6 +110,22 @@ function detectTime(text: string): string | null {
   return m ? m[1].toLowerCase() : null;
 }
 
+// "the name should be Ngozi Obi", "my name na Emeka" → the corrected name.
+function detectName(text: string): string | null {
+  const m = text.match(/\bname\s+(?:is|na|be|should be|suppose be|go be)\s+([a-z' ]+)/i);
+  if (!m) return null;
+  const name = m[1]
+    .replace(/\b(instead|abeg|please|o|oo|jare|sha)\b/gi, "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!name) return null;
+  return name
+    .split(" ")
+    .slice(0, 3)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function localStub(message: string): AIResponse {
   const text = message.trim();
   const base = { language: "en" as Language, entities: emptyEntities(), confidence: 0.85 };
@@ -124,11 +140,17 @@ function localStub(message: string): AIResponse {
     };
   }
   if (RESCHED_RE.test(text)) {
+    const day = detectDay(text);
+    const time = detectTime(text);
     return {
       ...base,
       intent: "reschedule",
-      reply: "Sure, we can move your appointment. Which day and time would suit you better?",
-      needs_clarification: true,
+      entities: { ...emptyEntities(), preferred_day: day, preferred_time: time },
+      reply:
+        day || time
+          ? "No problem — let's move it."
+          : "Sure, we can move your appointment. Which day and time would suit you better?",
+      needs_clarification: !day && !time,
       suggested_action: "reschedule",
     };
   }
@@ -181,6 +203,22 @@ function localStub(message: string): AIResponse {
         "Hello 👋 Welcome to Automo Health. I can help you book, reschedule, or cancel an appointment. What would you like to do?",
       needs_clarification: true,
       suggested_action: "show_services",
+    };
+  }
+  // No booking keyword, but a concrete detail (day, time, or a corrected
+  // name) — that's a follow-up to the flow in progress, not noise.
+  const day = detectDay(text);
+  const time = detectTime(text);
+  const name = detectName(text);
+  if (day || time || name) {
+    return {
+      ...base,
+      intent: "book",
+      confidence: 0.6,
+      entities: { ...emptyEntities(), preferred_day: day, preferred_time: time, patient_name: name },
+      reply: "Sure — let me sort that out for you.",
+      needs_clarification: false,
+      suggested_action: null,
     };
   }
   return {

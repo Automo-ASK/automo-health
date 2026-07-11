@@ -118,6 +118,16 @@ Errors: `409 { "error": "slot_unavailable" }` if the slot was taken/expired.
 
 `GET /api/v1/appointments/:id` → the appointment object above (with live `status`).
 
+### Cancel (patient action, pre-visit) — *added Day 3, confirm at standup*
+
+`POST /api/v1/appointments/:id/cancel`
+
+Releases the held/booked slot back to `open` and expires any pending payment.
+Channels use this when a patient corrects themselves after a hold (change
+time/name, back out) instead of leaving the hold to strand the slot until
+expiry. `200` → updated appointment. `409 { "error": "already_closed" }` if
+the visit already ran (`in_progress | done | admitted`).
+
 ### Queue (doctor screen)
 
 `GET /api/v1/appointments?date=2026-07-09&provider_id=prov_ade`

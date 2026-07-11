@@ -157,6 +157,25 @@ app.get("/api/v1/appointments/:id", (req, res) => {
   res.json(serializeAppointment(a));
 });
 
+// Cancel (patient action, pre-visit): releases the slot, expires the payment.
+// Added Day 3 — channels need this to let a patient correct themselves after a
+// hold (change time/name, back out) without waiting for hold-expiry.
+app.post("/api/v1/appointments/:id/cancel", (req, res) => {
+  const a = appointments.find((x) => x.id === req.params.id);
+  if (!a) return res.status(404).json({ error: "not_found" });
+  if (["done", "admitted", "in_progress"].includes(a.status)) {
+    return res.status(409).json({ error: "already_closed" });
+  }
+  a.status = "cancelled";
+  a.hold_expires_at = null;
+  const slot = slots.find((s) => s.id === a.slot_id);
+  if (slot && slot.status !== "open") slot.status = "open";
+  const pay = payments.find((p) => p.appointment_id === a.id && p.status === "pending");
+  if (pay) pay.status = "expired";
+  log("appointment cancelled", a.id, "slot released", slot?.id);
+  res.json(serializeAppointment(a));
+});
+
 // Doctor queue
 app.get("/api/v1/appointments", (req: Request, res: Response) => {
   const { date, provider_id } = req.query as Record<string, string>;

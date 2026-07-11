@@ -56,6 +56,16 @@ const templates = {
       "🧾 {service}\n👨‍⚕️ {doctor}\n🗓 {day} ní {time}\n💰 {amount}\n\n" +
       "A ó dì àyè yìí mú fún ọ títí di {expiry}. Ìjápọ̀ ìsanwó ń bọ̀ — ìsanwó ni yóò fi ìdí rẹ̀ múlẹ̀. Ref: {ref}",
   },
+  updated_intro: {
+    en: "Got it — I've updated it ✏️",
+    pidgin: "I don update am ✏️",
+    yo: "Mo ti ṣàtúnṣe rẹ̀ ✏️",
+  },
+  hold_cancelled: {
+    en: "Done — your booking ({ref}) is cancelled and the time is free again. If you'd like another time, just tell me 🙂",
+    pidgin: "Done — I don cancel di booking ({ref}), di time don free again. If you wan another time, just tell me 🙂",
+    yo: "Ó parí — a ti fagi lé ìforúkọsílẹ̀ náà ({ref}), àkókò náà ti ṣí sílẹ̀. Tí o bá fẹ́ àkókò mìíràn, sọ fún mi 🙂",
+  },
   flow_cancelled: {
     en: "Okay, I've cancelled that booking request. Anything else I can help with?",
     pidgin: "No wahala, I don cancel dat booking. Anything else you need?",

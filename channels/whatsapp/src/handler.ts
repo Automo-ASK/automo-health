@@ -20,6 +20,7 @@ import {
   getServices,
   getSlots,
   createAppointment,
+  cancelAppointment,
   naira,
   SlotUnavailableError,
   type Service,
@@ -91,40 +92,73 @@ async function route(
   // "book for my son Tobi tomorrow morning" never gets asked again.
   if (ai.entities.patient_name) flow.patientName = ai.entities.patient_name;
 
-  // Cancelling mid-flow abandons the in-progress booking. Cancelling an
-  // existing (paid/confirmed) appointment is a later-day feature — let the AI
-  // ask the clarifying questions for now.
+  // A service named in *this* message wins over one picked earlier, so the
+  // patient can change their mind at any point ("actually make it a lab test").
+  const known = flow.offeredServices.length ? flow.offeredServices : await getServices();
+  const switched = matchService(known, ai.entities.service_type, text);
+  const serviceChanged = switched !== null && switched.id !== flow.service?.id;
+  const wantsDate = resolveDate(ai.entities.preferred_day);
+  const wantsTime = ai.entities.preferred_time;
+  const opts = { date: wantsDate, timePref: wantsTime, lead: ai.reply };
+
+  // Cancelling: a held booking is released for real (slot back to open);
+  // mid-flow it just abandons the in-progress booking. Cancelling a *paid*
+  // appointment is a later-day feature — let the AI clarify for now.
   if (ai.intent === "cancel") {
-    if (flow.stage !== "idle" && flow.stage !== "held") {
+    if (flow.stage === "held" && flow.appointmentId) {
+      const ref = flow.appointmentId;
+      await releaseHold(convo);
+      resetBooking(convo);
+      return t(convo.language, "hold_cancelled", { ref });
+    }
+    if (flow.stage !== "idle") {
       resetBooking(convo);
       return t(convo.language, "flow_cancelled");
     }
     return ai.reply;
   }
 
-  // A service named in *this* message wins over one picked earlier, so the
-  // patient can change their mind at any point ("actually make it a lab test").
-  const known = flow.offeredServices.length ? flow.offeredServices : await getServices();
-  const switched = matchService(known, ai.entities.service_type, text);
-
   // We asked for a name and got free text back: maybe the name arrived inside
   // a sentence, maybe they corrected the service, maybe they said something
   // else entirely — the AI has our question in the history, so its reply fits.
   if (flow.stage === "awaiting_name") {
-    if (switched && switched.id !== flow.service?.id) return showSlots(convo, switched, prefs(ai));
+    if (serviceChanged) return showSlots(convo, switched!, opts);
     if (flow.patientName) return createHold(convo);
     return ai.reply;
   }
 
+  // Post-hold corrections. A different service, day, or time means the held
+  // slot is wrong: release it and re-offer. A new name alone keeps the slot
+  // and rebooks it under the corrected name.
+  if (flow.stage === "held") {
+    if (serviceChanged || wantsDate || wantsTime || ai.intent === "reschedule") {
+      await releaseHold(convo);
+      return showSlots(convo, serviceChanged ? switched! : flow.service!, opts);
+    }
+    if (ai.entities.patient_name) {
+      await releaseHold(convo); // frees the slot so the rebook below can take it
+      const msg = await createHold(convo);
+      return `${t(convo.language, "updated_intro")}\n\n${msg}`;
+    }
+  }
+
   if (ai.intent === "book" || ai.suggested_action === "show_services" || ai.suggested_action === "show_slots") {
-    if (flow.stage === "held") resetBooking(convo); // a fresh "book" starts a fresh flow
+    // A plain new "book" after a hold starts a fresh flow (maybe for someone
+    // else); the old hold stands and expires on its own if never paid.
+    if (flow.stage === "held") resetBooking(convo);
     const service = switched ?? flow.service;
-    if (service) return showSlots(convo, service, prefs(ai));
+    if (service) return showSlots(convo, service, opts);
     return showServices(convo, ai.reply);
   }
 
-  // A free-text reply while a list is showing ("the malaria one", "morning
-  // works") that the AI didn't resolve: re-ask rather than lose the patient.
+  // "morning works" / "any time tomorrow?" while slots are showing: re-filter
+  // instead of stalling.
+  if (flow.stage === "choosing_slot" && flow.service && (wantsDate || wantsTime)) {
+    return showSlots(convo, flow.service, opts);
+  }
+
+  // A free-text reply while a list is showing that the AI didn't resolve:
+  // re-ask rather than lose the patient.
   if (flow.stage === "choosing_service" || flow.stage === "choosing_slot") {
     return ai.needs_clarification && ai.reply ? ai.reply : t(convo.language, "invalid_choice");
   }
@@ -133,13 +167,18 @@ async function route(
   return ai.reply;
 }
 
-/** Day/time preferences + the AI's phrasing, carried into the slot list. */
-function prefs(ai: AIResponse) {
-  return {
-    date: resolveDate(ai.entities.preferred_day),
-    timePref: ai.entities.preferred_time,
-    lead: ai.reply,
-  };
+/** Cancel the held appointment so its slot is bookable again. Best-effort —
+ *  if the call fails, hold-expiry cleans up within minutes anyway. */
+async function releaseHold(convo: ConversationState): Promise<void> {
+  const flow = convo.booking;
+  if (!flow.appointmentId) return;
+  try {
+    await cancelAppointment(flow.appointmentId);
+    console.log(`[whatsapp] hold released ${flow.appointmentId}`);
+  } catch (err) {
+    console.error("[whatsapp] release failed:", err instanceof Error ? err.message : err);
+  }
+  flow.appointmentId = null;
 }
 
 // ---- flow steps -------------------------------------------------------------
@@ -247,10 +286,20 @@ async function createHold(convo: ConversationState): Promise<string> {
 
 // ---- small parsers ----------------------------------------------------------
 
-/** "2", "option 2", "no. 2", "2." → 2. Anything else → null. */
+const ORDINALS = ["first", "second", "third", "fourth", "fifth", "sixth"];
+
+/** "2", "option 2", "no. 2", "the second one", "I'll take number 3" → the pick. */
 function parseChoice(text: string): number | null {
-  const m = text.trim().match(/^(?:option|number|no\.?|#)?\s*(\d{1,2})\s*\.?$/i);
-  return m ? Number(m[1]) : null;
+  const cleaned = text.trim().toLowerCase();
+  const bare = cleaned.match(/^(?:option|number|no\.?|#)?\s*(\d{1,2})\s*\.?$/);
+  if (bare) return Number(bare[1]);
+  // Ordinal at the end of the message ("the second one", "make am the third")
+  // — end-anchored so "first thing tomorrow" doesn't count as a pick.
+  const ord = cleaned.match(/\b(first|second|third|fourth|fifth|sixth)(?:\s+one)?\s*[.!]?$/);
+  if (ord) return ORDINALS.indexOf(ord[1]) + 1;
+  const worded = cleaned.match(/\b(?:number|no\.|option)\s*(\d{1,2})\b/);
+  if (worded) return Number(worded[1]);
+  return null;
 }
 
 /** Match a service from AI entities or literal text against the offered list. */
