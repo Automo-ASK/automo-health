@@ -15,9 +15,12 @@ Africa's Talking expects an HTTP 200 response; it does not use the body.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -87,6 +90,9 @@ def sms_inbound(
 
     db.commit()
 
-    at.send_sms(result.reply, [from_])
+    try:
+        at.send_sms(result.reply, [from_])
+    except Exception as exc:
+        logger.error("SMS send failed for %s: %s", from_, exc)
 
     return {"status": "ok"}
