@@ -4,6 +4,7 @@ so that Alembic autogeneration and ``create_all`` can see them."""
 from app.models.appointment import Appointment
 from app.models.base import Base
 from app.models.booking import Booking
+from app.models.conversation import Conversation
 from app.models.enums import (
     AppointmentStatus,
     BookingStatus,

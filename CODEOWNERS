@@ -1,0 +1,21 @@
+# Automo Health — code ownership
+# Replace the @placeholder handles with real GitHub usernames, then this file
+# auto-requests the right reviewer on every PR. Format: <path>  <owner(s)>
+#
+# Team: Quadri (frontend + WhatsApp), Koded (backend + payments), Adam (USSD/SMS + AI + notifications)
+
+# --- Quadri ---------------------------------------------------------------
+/frontend/            @quadri
+/channels/whatsapp/   @quadri
+
+# --- Adam -----------------------------------------------------------------
+/channels/ussd-sms/   @adam
+/ai-service/          @adam
+
+# --- Koded ----------------------------------------------------------------
+/backend/             @koded
+
+# --- Shared (changes need a heads-up at standup) --------------------------
+/backend-stub/        @quadri @koded
+/docs/contracts/      @quadri @koded @adam
+/docker-compose.yml   @quadri @adam

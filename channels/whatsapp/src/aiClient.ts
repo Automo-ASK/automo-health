@@ -1,0 +1,233 @@
+// AI conversation service client.
+//
+// Aligned to Adam's REAL published contract: POST {AI_SERVICE_URL}/api/v1/ai/interpret
+// (backend/app/schemas/ai_service.py). If AI_SERVICE_URL is unset we use a
+// deterministic local stub returning the *same* response shape, so the WhatsApp
+// conversation is built and testable offline and swaps to the live Gemini
+// service by only setting an env var. See docs/contracts/ai-service.md.
+import axios from "axios";
+import { config } from "./config.js";
+import type { Turn } from "./conversation.js";
+
+export type Intent = "book" | "reschedule" | "cancel" | "query" | "unknown";
+export type Language = "en" | "pidgin" | "yo";
+export type SuggestedAction =
+  | "show_services"
+  | "show_slots"
+  | "confirm_booking"
+  | "awaiting_payment"
+  | "reschedule"
+  | "cancel_booking"
+  | "human_handoff"
+  | null;
+
+export interface ExtractedEntities {
+  service_type: string | null;
+  provider_name: string | null;
+  preferred_day: string | null;
+  preferred_time: string | null;
+  patient_name: string | null;
+  appointment_id: string | null;
+}
+
+export interface AIResponse {
+  intent: Intent;
+  language: Language;
+  entities: ExtractedEntities;
+  reply: string;
+  confidence: number;
+  needs_clarification: boolean;
+  suggested_action: SuggestedAction;
+}
+
+export interface InterpretInput {
+  message: string;
+  conversationId: string;
+  history: Turn[];
+  languageHint?: Language | null;
+}
+
+export async function interpret(input: InterpretInput): Promise<AIResponse> {
+  if (config.aiServiceUrl) {
+    const { data } = await axios.post(
+      `${config.aiServiceUrl}/api/v1/ai/interpret`,
+      {
+        message: input.message,
+        channel: "whatsapp",
+        conversation_id: input.conversationId,
+        history: input.history, // {role, content} — matches ConversationTurn
+        language_hint: input.languageHint ?? null,
+      },
+      { timeout: 20_000 }
+    );
+    return data as AIResponse;
+  }
+  return localStub(input.message);
+}
+
+export function isLive(): boolean {
+  return Boolean(config.aiServiceUrl);
+}
+
+// ---- local deterministic stub -------------------------------------------
+// Mirrors the live service's response shape and guardrails: it phrases replies
+// but never invents a slot, fee, or confirmation. English only; the live Gemini
+// service handles Pidgin and Yoruba.
+
+const emptyEntities = (): ExtractedEntities => ({
+  service_type: null,
+  provider_name: null,
+  preferred_day: null,
+  preferred_time: null,
+  patient_name: null,
+  appointment_id: null,
+});
+
+const GREET_RE = /\b(hi|hello|hey|howfa|how far|good\s*(morning|afternoon|evening)|start|menu)\b/i;
+const BOOK_RE = /\b(book|appointment|see (a )?doctor|consult|register|slot|checkup|check\s?up|test|lab)\b/i;
+const CANCEL_RE = /\b(cancel|no longer|can't make|cant make)\b/i;
+const RESCHED_RE = /\b(reschedule|change|move|postpone|shift)\b/i;
+// A patient describing how they feel IS a booking request — a receptionist
+// wouldn't ask "do you want to book?", she'd start finding them a doctor.
+const SYMPTOM_RE =
+  /\b(sick|unwell|fever|feverish|headache|pain|hurt(s|ing)?|malaria|typhoid|cough|vomit|dizzy|rash|body dey hot|no feel well|not feeling (well|fine))\b/i;
+
+function detectService(text: string): string | null {
+  if (/\b(lab|test|malaria|blood|scan)\b/i.test(text)) return "lab_test";
+  if (/\b(follow|virtual|video|online)\b/i.test(text)) return "virtual";
+  if (/\b(consult|doctor|checkup|check\s?up|appointment)\b/i.test(text)) return "consultation";
+  return null;
+}
+
+function detectDay(text: string): string | null {
+  if (/\btoday\b/i.test(text)) return "today";
+  if (/\b(tomorrow|tomoro|2moro)\b/i.test(text)) return "tomorrow";
+  return null;
+}
+
+function detectTime(text: string): string | null {
+  const m = text.match(/\b(morning|afternoon|evening|night|\d{1,2}\s*(?:am|pm))\b/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
+// "the name should be Ngozi Obi", "my name na Emeka" → the corrected name.
+function detectName(text: string): string | null {
+  const m = text.match(/\bname\s+(?:is|na|be|should be|suppose be|go be)\s+([a-z' ]+)/i);
+  if (!m) return null;
+  const name = m[1]
+    .replace(/\b(instead|abeg|please|o|oo|jare|sha)\b/gi, "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!name) return null;
+  return name
+    .split(" ")
+    .slice(0, 3)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function localStub(message: string): AIResponse {
+  const text = message.trim();
+  const base = { language: "en" as Language, entities: emptyEntities(), confidence: 0.85 };
+
+  if (CANCEL_RE.test(text)) {
+    return {
+      ...base,
+      intent: "cancel",
+      reply: "No problem — I can help you cancel. What's the name or phone number on the booking?",
+      needs_clarification: true,
+      suggested_action: "cancel_booking",
+    };
+  }
+  if (RESCHED_RE.test(text)) {
+    const day = detectDay(text);
+    const time = detectTime(text);
+    return {
+      ...base,
+      intent: "reschedule",
+      entities: { ...emptyEntities(), preferred_day: day, preferred_time: time },
+      reply:
+        day || time
+          ? "No problem — let's move it."
+          : "Sure, we can move your appointment. Which day and time would suit you better?",
+      needs_clarification: !day && !time,
+      suggested_action: "reschedule",
+    };
+  }
+  if (SYMPTOM_RE.test(text) && !BOOK_RE.test(text)) {
+    return {
+      ...base,
+      intent: "book",
+      entities: {
+        ...emptyEntities(),
+        service_type: "consultation",
+        preferred_day: detectDay(text),
+        preferred_time: detectTime(text),
+      },
+      reply: "Sorry to hear you're not feeling well 🙏 Let's get you in to see a doctor.",
+      needs_clarification: false,
+      suggested_action: "show_slots",
+    };
+  }
+  if (BOOK_RE.test(text)) {
+    const service = detectService(text);
+    if (service) {
+      return {
+        ...base,
+        intent: "book",
+        entities: {
+          ...emptyEntities(),
+          service_type: service,
+          preferred_day: detectDay(text),
+          preferred_time: detectTime(text),
+        },
+        reply: "Great — let's get that sorted for you.",
+        needs_clarification: false,
+        suggested_action: "show_slots",
+      };
+    }
+    return {
+      ...base,
+      intent: "book",
+      reply:
+        "I can help you book 👍 What kind of appointment do you need — a consultation, a lab test, or a follow-up?",
+      needs_clarification: true,
+      suggested_action: "show_services",
+    };
+  }
+  if (GREET_RE.test(text) || text.length === 0) {
+    return {
+      ...base,
+      intent: "query",
+      reply:
+        "Hello 👋 Welcome to Automo Health. I can help you book, reschedule, or cancel an appointment. What would you like to do?",
+      needs_clarification: true,
+      suggested_action: "show_services",
+    };
+  }
+  // No booking keyword, but a concrete detail (day, time, or a corrected
+  // name) — that's a follow-up to the flow in progress, not noise.
+  const day = detectDay(text);
+  const time = detectTime(text);
+  const name = detectName(text);
+  if (day || time || name) {
+    return {
+      ...base,
+      intent: "book",
+      confidence: 0.6,
+      entities: { ...emptyEntities(), preferred_day: day, preferred_time: time, patient_name: name },
+      reply: "Sure — let me sort that out for you.",
+      needs_clarification: false,
+      suggested_action: null,
+    };
+  }
+  return {
+    ...base,
+    intent: "unknown",
+    confidence: 0.35,
+    reply:
+      "Sorry, I didn't quite catch that. Are you trying to book, reschedule, or cancel an appointment?",
+    needs_clarification: true,
+    suggested_action: null,
+  };
+}
