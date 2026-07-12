@@ -18,12 +18,18 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.booking import Booking
-from app.models.enums import BookingStatus, PaymentProvider, PaymentStatus, SlotStatus
+from app.models.enums import (
+    BookingStatus,
+    NotificationEvent,
+    PaymentProvider,
+    PaymentStatus,
+    SlotStatus,
+)
 from app.models.patient import Patient
 from app.models.payment import Payment
 from app.models.service import Service
 from app.models.slot import Slot
-from app.services import paystack
+from app.services import notifications, paystack
 from app.services.exceptions import (
     NotFoundError,
     PaymentError,
@@ -131,6 +137,17 @@ def create_booking(
     db.commit()
     db.refresh(booking)
     db.refresh(payment)
+
+    notifications.dispatch(
+        NotificationEvent.BOOKING_CREATED,
+        {
+            "booking_id": str(booking.id),
+            "patient_id": str(patient_id),
+            "amount": amount,
+            "currency": currency,
+            "expires_at": expires_at.isoformat(),
+        },
+    )
     return booking, payment
 
 

@@ -70,3 +70,22 @@ class PaymentStatus(str, enum.Enum):
 
 class PaymentProvider(str, enum.Enum):
     PAYSTACK = "paystack"
+    SQUAD = "squad"
+
+
+class VirtualAccountStatus(str, enum.Enum):
+    """Lifecycle of a per-booking dedicated virtual account."""
+
+    ACTIVE = "active"
+    CLOSED = "closed"
+
+
+class NotificationEvent(str, enum.Enum):
+    """Domain events that fire notification hooks."""
+
+    BOOKING_CREATED = "booking.created"
+    BOOKING_CONFIRMED = "booking.confirmed"
+    BOOKING_EXPIRED = "booking.expired"
+    APPOINTMENT_SCHEDULED = "appointment.scheduled"
+    PAYMENT_SUCCEEDED = "payment.succeeded"
+    PAYMENT_MISMATCH = "payment.mismatch"

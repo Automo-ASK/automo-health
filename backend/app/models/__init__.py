@@ -8,19 +8,18 @@ from app.models.conversation import Conversation
 from app.models.enums import (
     AppointmentStatus,
     BookingStatus,
-    ChannelType,
-    Intent,
-    Language,
+    NotificationEvent,
     PaymentProvider,
     PaymentStatus,
     SlotStatus,
-    SuggestedAction,
+    VirtualAccountStatus,
 )
 from app.models.patient import Patient
 from app.models.payment import Payment
 from app.models.provider import Provider
 from app.models.service import Service
 from app.models.slot import Slot
+from app.models.virtual_account import VirtualAccount
 
 __all__ = [
     "Base",
@@ -31,14 +30,12 @@ __all__ = [
     "Booking",
     "Appointment",
     "Payment",
-    "Conversation",
+    "VirtualAccount",
     "SlotStatus",
     "BookingStatus",
     "AppointmentStatus",
     "PaymentStatus",
     "PaymentProvider",
-    "ChannelType",
-    "Language",
-    "Intent",
-    "SuggestedAction",
+    "VirtualAccountStatus",
+    "NotificationEvent",
 ]
