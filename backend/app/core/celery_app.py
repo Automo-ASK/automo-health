@@ -15,6 +15,12 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_track_started=True,
+    # Fail fast when the broker is unreachable instead of retrying for minutes, so
+    # callers (e.g. notification dispatch) can fall back to inline delivery quickly.
+    broker_connection_retry_on_startup=False,
+    broker_connection_max_retries=0,
+    broker_transport_options={"socket_connect_timeout": 2, "socket_timeout": 2},
+    task_publish_retry=False,
 )
 
 # Day 2: periodic sweep that releases expired slot holds and expires unpaid

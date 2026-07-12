@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.models.patient import Patient
     from app.models.payment import Payment
     from app.models.slot import Slot
+    from app.models.virtual_account import VirtualAccount
 
 
 class Booking(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -55,3 +56,6 @@ class Booking(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     slot: Mapped["Slot"] = relationship(back_populates="booking")
     payment: Mapped["Payment | None"] = relationship(back_populates="booking", uselist=False)
     appointment: Mapped["Appointment | None"] = relationship(back_populates="booking", uselist=False)
+    virtual_account: Mapped["VirtualAccount | None"] = relationship(
+        back_populates="booking", uselist=False
+    )

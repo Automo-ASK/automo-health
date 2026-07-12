@@ -29,12 +29,25 @@ class Settings(BaseSettings):
     slot_hold_ttl_seconds: int = 600
     booking_payment_ttl_seconds: int = 900
 
+    # Payments
+    # Active provider for virtual accounts / links ("paystack" or "squad").
+    payment_provider: str = "paystack"
+    default_currency: str = "NGN"
+
     # Paystack
     paystack_secret_key: str = "sk_test_changeme"
     paystack_public_key: str = "pk_test_changeme"
     paystack_base_url: str = "https://api.paystack.co"
-    default_currency: str = "NGN"
     paystack_callback_url: str = "http://localhost:8000/api/v1/payments/callback"
+    # Bank used when provisioning a dedicated virtual account (test: wema-bank/titan-paystack).
+    paystack_dva_preferred_bank: str = "test-bank"
+
+    # Notifications
+    # Optional outbound webhook that receives notification events as JSON.
+    notifications_webhook_url: str | None = None
+    # When true, notification hooks are enqueued to Celery (requires a broker+worker).
+    # When false (default), they are delivered inline — simpler for dev/test.
+    notifications_async: bool = False
 
 
 @lru_cache

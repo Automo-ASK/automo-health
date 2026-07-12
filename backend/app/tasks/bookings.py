@@ -8,8 +8,9 @@ from sqlalchemy import select
 from app.core.celery_app import celery_app
 from app.core.database import SessionLocal
 from app.models.booking import Booking
-from app.models.enums import BookingStatus, PaymentStatus, SlotStatus
+from app.models.enums import BookingStatus, NotificationEvent, PaymentStatus, SlotStatus
 from app.models.slot import Slot
+from app.services import notifications
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ def expire_unpaid_bookings() -> int:
     release the held slot back to OPEN.
     """
     now = datetime.now(timezone.utc)
-    expired = 0
+    expired_ids: list[str] = []
     db = SessionLocal()
     try:
         bookings = db.execute(
@@ -48,11 +49,16 @@ def expire_unpaid_bookings() -> int:
                 slot.status = SlotStatus.OPEN
                 slot.hold_expires_at = None
 
-            expired += 1
+            expired_ids.append(str(booking.id))
 
         db.commit()
-        if expired:
-            logger.info("Expired %d unpaid booking(s)", expired)
-        return expired
     finally:
         db.close()
+
+    # Fire hooks after the state is durably committed.
+    for booking_id in expired_ids:
+        notifications.dispatch(NotificationEvent.BOOKING_EXPIRED, {"booking_id": booking_id})
+
+    if expired_ids:
+        logger.info("Expired %d unpaid booking(s)", len(expired_ids))
+    return len(expired_ids)

@@ -7,15 +7,18 @@ from app.models.booking import Booking
 from app.models.enums import (
     AppointmentStatus,
     BookingStatus,
+    NotificationEvent,
     PaymentProvider,
     PaymentStatus,
     SlotStatus,
+    VirtualAccountStatus,
 )
 from app.models.patient import Patient
 from app.models.payment import Payment
 from app.models.provider import Provider
 from app.models.service import Service
 from app.models.slot import Slot
+from app.models.virtual_account import VirtualAccount
 
 __all__ = [
     "Base",
@@ -26,9 +29,12 @@ __all__ = [
     "Booking",
     "Appointment",
     "Payment",
+    "VirtualAccount",
     "SlotStatus",
     "BookingStatus",
     "AppointmentStatus",
     "PaymentStatus",
     "PaymentProvider",
+    "VirtualAccountStatus",
+    "NotificationEvent",
 ]
