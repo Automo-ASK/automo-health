@@ -1,36 +1,36 @@
 """USSD booking engine.
 
 Handles the final step of the USSD flow: turning a confirmed service
-selection into a real held booking and queuing the payment SMS.
+selection into a real held booking and firing the payment notification.
 
 Design notes
 ------------
-* Paystack DVA (virtual accounts) is Koded's Day 5 work.  Until then we
-  issue a booking reference and instruct the patient to watch for a follow-up
-  SMS once virtual account details are ready.  The SMS copy here is a
-  placeholder that keeps the demo end-to-end without depending on Paystack.
-* We create the Booking and Payment rows directly (bypassing the Paystack
-  HTTP call) so the USSD session is never blocked by a payment-provider
-  timeout.  The booking status is PENDING_PAYMENT; a Celery task will
-  expire it if payment doesn't arrive within BOOKING_PAYMENT_TTL_SECONDS.
+* Paystack DVA (virtual accounts) is Koded's Day 5 payment work. We create
+  Booking + Payment rows directly (no Paystack HTTP call) so the USSD session
+  is never blocked by a payment-provider timeout.
+* After the DB commit, we fire a BOOKING_CREATED notification which calls
+  sms_notifications.send_booking_created() — that sends the full payment
+  instruction SMS (including bank transfer details if a virtual account exists).
+* The booking status is PENDING_PAYMENT; a Celery beat task expires it if
+  payment doesn't arrive within BOOKING_PAYMENT_TTL_SECONDS.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.booking import Booking
-from app.models.enums import BookingStatus, PaymentStatus, SlotStatus
+from app.models.enums import BookingStatus, NotificationEvent, PaymentStatus, SlotStatus
 from app.models.payment import Payment
 from app.models.service import Service
 from app.models.slot import Slot
-from app.services import africastalking as at
+from app.services import notifications
 from app.services.patients import get_or_create_by_phone
 
 logger = logging.getLogger(__name__)
@@ -42,27 +42,6 @@ _SERVICE_KEYWORDS: dict[str, str] = {
     "1": "consultation",
     "2": "lab",
     "3": "virtual",
-}
-
-_PAYMENT_SMS: dict[str, str] = {
-    "en": (
-        "Your {service} slot is held until {expires}.\n"
-        "Ref: {ref}\n"
-        "Payment instructions will arrive shortly by SMS.\n"
-        "Amount: {amount}"
-    ),
-    "pidgin": (
-        "We don hold your {service} slot until {expires}.\n"
-        "Ref: {ref}\n"
-        "We go send payment details to you by SMS soon.\n"
-        "Amount: {amount}"
-    ),
-    "yo": (
-        "A ti pa akoko {service} rẹ mọ titi {expires}.\n"
-        "Ref: {ref}\n"
-        "A yoo fi alaye isanwo ranṣẹ si ọ nipasẹ SMS laipẹ.\n"
-        "Iye: {amount}"
-    ),
 }
 
 _END_CONFIRMED: dict[str, str] = {
@@ -79,15 +58,11 @@ _END_NO_SLOTS: dict[str, str] = {
 
 
 def _format_wat(dt: datetime) -> str:
-    """Format a UTC datetime as a human-readable WAT string."""
-    wat_dt = dt.astimezone(WAT)
-    return wat_dt.strftime("%a %d %b, %I:%M %p WAT")
+    return dt.astimezone(WAT).strftime("%a %d %b, %I:%M %p WAT")
 
 
 def _format_kobo(kobo: int) -> str:
-    """Convert kobo to a formatted naira string, e.g. 200000 → '₦2,000'."""
-    naira = kobo // 100
-    return f"₦{naira:,}"
+    return f"₦{kobo // 100:,}"
 
 
 def _find_next_slot(db: Session, service_key: str) -> tuple[Slot, Service] | None:
@@ -95,7 +70,6 @@ def _find_next_slot(db: Session, service_key: str) -> tuple[Slot, Service] | Non
     keyword = _SERVICE_KEYWORDS.get(service_key, "consultation")
     now = datetime.now(timezone.utc)
 
-    # Find active services whose name contains the keyword (case-insensitive)
     services = db.execute(
         select(Service).where(
             Service.is_active.is_(True),
@@ -104,7 +78,6 @@ def _find_next_slot(db: Session, service_key: str) -> tuple[Slot, Service] | Non
     ).scalars().all()
 
     if not services:
-        # Fall back to any active service
         services = db.execute(
             select(Service).where(Service.is_active.is_(True)).limit(3)
         ).scalars().all()
@@ -115,7 +88,6 @@ def _find_next_slot(db: Session, service_key: str) -> tuple[Slot, Service] | Non
     service_ids = [s.id for s in services]
     service_map = {s.id: s for s in services}
 
-    # Find earliest open slot for any of these services
     slot = db.execute(
         select(Slot)
         .where(
@@ -128,7 +100,6 @@ def _find_next_slot(db: Session, service_key: str) -> tuple[Slot, Service] | Non
     ).scalar_one_or_none()
 
     if slot is None:
-        # Also try slots without a service_id (generic slots)
         slot = db.execute(
             select(Slot)
             .where(
@@ -157,16 +128,15 @@ def _create_booking_direct(
 ) -> tuple[Booking, Payment]:
     """Create a PENDING_PAYMENT booking without calling Paystack.
 
-    The payment row holds the reference only; the actual payment mechanism
-    (virtual account) is added by Koded's Day 5 payment work.
+    Commits the transaction and returns the refreshed Booking + Payment rows.
+    The caller is responsible for firing the BOOKING_CREATED notification after
+    this returns (so it fires after the commit, not inside it).
     """
     from app.core.config import settings
 
     now = datetime.now(timezone.utc)
-    from datetime import timedelta
     expires_at = now + timedelta(seconds=settings.booking_payment_ttl_seconds)
 
-    # Hold the slot
     slot.status = SlotStatus.HELD
     slot.hold_expires_at = expires_at
 
@@ -216,8 +186,8 @@ def confirm(
 ) -> str:
     """Run the full USSD booking confirmation.
 
-    Returns an ``END ``-prefixed string ready to send back to Africa's
-    Talking.
+    Creates the booking, fires the BOOKING_CREATED notification (which delivers
+    the payment instruction SMS), and returns an ``END``-prefixed string.
     """
     result = _find_next_slot(db, service_key)
     if result is None:
@@ -238,16 +208,18 @@ def confirm(
         db.rollback()
         return "END Sorry, we couldn't complete your booking. Please try again or call the clinic."
 
-    # Send payment SMS
-    sms_text = _PAYMENT_SMS.get(lang, _PAYMENT_SMS["en"]).format(
-        service=service.name,
-        expires=_format_wat(booking.expires_at),
-        ref=payment.reference,
-        amount=_format_kobo(service.price_amount),
+    # Fire BOOKING_CREATED — sms_notifications.send_booking_created() will deliver
+    # the payment instruction SMS (with bank transfer details if a virtual account exists).
+    notifications.dispatch(
+        NotificationEvent.BOOKING_CREATED,
+        {
+            "booking_id": str(booking.id),
+            "patient_id": str(patient.id),
+            "amount": booking.amount,
+            "currency": booking.currency,
+            "expires_at": booking.expires_at.isoformat() if booking.expires_at else None,
+            "lang": lang,
+        },
     )
-    try:
-        at.send_sms(sms_text, [phone])
-    except Exception as exc:
-        logger.error("Payment SMS failed for %s: %s", phone, exc)
 
     return "END " + _END_CONFIRMED.get(lang, _END_CONFIRMED["en"])
