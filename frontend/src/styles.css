@@ -70,6 +70,16 @@ body {
 .screen-head h1 { margin: 0 0 2px; font-size: 24px; letter-spacing: -0.02em; }
 .muted { color: var(--muted); margin: 0; font-size: 14px; }
 
+.doctor-select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  padding: 2px 6px;
+}
+
 .count-pill {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 10px 18px; text-align: center; box-shadow: var(--shadow);
