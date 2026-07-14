@@ -70,6 +70,9 @@ body {
 .screen-head h1 { margin: 0 0 2px; font-size: 24px; letter-spacing: -0.02em; }
 .muted { color: var(--muted); margin: 0; font-size: 14px; }
 
+.btn.small { padding: 6px 12px; font-size: 13px; }
+.row-amount { font-weight: 600; min-width: 84px; text-align: right; }
+
 .doctor-select {
   border: 1px solid var(--line);
   border-radius: 8px;

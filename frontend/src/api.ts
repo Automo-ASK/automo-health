@@ -4,6 +4,19 @@
 
 const BASE: string = import.meta.env?.VITE_API_URL?.replace(/\/$/, "") ?? "";
 
+export interface PaymentRow {
+  payment_id: string;
+  appointment_id: string;
+  patient_name: string;
+  service_name: string;
+  method: string;
+  amount: number;
+  consultation_fee: number;
+  platform_fee: number;
+  paid_at: string | null;
+  channel: string;
+}
+
 export interface QueueItem {
   id: string;
   position: number;
@@ -38,6 +51,12 @@ export const api = {
   services: () =>
     fetch(`${BASE}/api/v1/services`).then((r) =>
       j<Array<{ id: string; name: string; fee: number; type: string }>>(r)
+    ),
+
+  /** Cleared payments for a date (default today) — the cashier's day view. */
+  payments: (date?: string) =>
+    fetch(`${BASE}/api/v1/payments${date ? `?date=${encodeURIComponent(date)}` : ""}`).then((r) =>
+      j<PaymentRow[]>(r)
     ),
 };
 
