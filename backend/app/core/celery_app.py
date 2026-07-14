@@ -34,6 +34,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.bookings.expire_unpaid_bookings",
         "schedule": 60.0,
     },
+    # Day 6: safety-net re-verify of pending payments in case a webhook was missed.
+    "reverify-pending-payments": {
+        "task": "app.tasks.payments.reverify_pending_payments",
+        "schedule": 120.0,
+    },
 }
 
 # Ensure task modules are imported when the worker boots (Day 2).

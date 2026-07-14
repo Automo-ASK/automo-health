@@ -151,6 +151,44 @@ def create_booking(
     return booking, payment
 
 
+def expire_overdue_bookings(db: Session) -> list[uuid.UUID]:
+    """Expire PENDING_PAYMENT bookings past their deadline; release their slots.
+
+    Mutates + commits on the given session and returns the expired booking ids.
+    Notification dispatch is left to the caller (fire after commit). Shared by the
+    Celery beat task and the test suite.
+    """
+    now = _utcnow()
+    expired_ids: list[uuid.UUID] = []
+
+    bookings = db.execute(
+        select(Booking)
+        .where(
+            Booking.status == BookingStatus.PENDING_PAYMENT,
+            Booking.expires_at.is_not(None),
+            Booking.expires_at <= now,
+        )
+        .with_for_update(skip_locked=True)
+    ).scalars().all()
+
+    for booking in bookings:
+        booking.status = BookingStatus.EXPIRED
+        if booking.payment is not None and booking.payment.status == PaymentStatus.PENDING:
+            booking.payment.status = PaymentStatus.ABANDONED
+
+        slot = db.execute(
+            select(Slot).where(Slot.id == booking.slot_id).with_for_update()
+        ).scalar_one_or_none()
+        if slot is not None and slot.status == SlotStatus.HELD:
+            slot.status = SlotStatus.OPEN
+            slot.hold_expires_at = None
+
+        expired_ids.append(booking.id)
+
+    db.commit()
+    return expired_ids
+
+
 def cancel_booking(db: Session, booking_id: uuid.UUID) -> Booking:
     """Cancel a booking and release its slot (unless already confirmed)."""
     booking = db.execute(

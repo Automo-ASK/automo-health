@@ -8,12 +8,14 @@ from app.models.conversation import Conversation
 from app.models.enums import (
     AppointmentStatus,
     BookingStatus,
+    LabOrderStatus,
     NotificationEvent,
     PaymentProvider,
     PaymentStatus,
     SlotStatus,
     VirtualAccountStatus,
 )
+from app.models.lab_order import LabOrder
 from app.models.patient import Patient
 from app.models.payment import Payment
 from app.models.provider import Provider
@@ -31,11 +33,13 @@ __all__ = [
     "Appointment",
     "Payment",
     "VirtualAccount",
+    "LabOrder",
     "SlotStatus",
     "BookingStatus",
     "AppointmentStatus",
     "PaymentStatus",
     "PaymentProvider",
     "VirtualAccountStatus",
+    "LabOrderStatus",
     "NotificationEvent",
 ]
