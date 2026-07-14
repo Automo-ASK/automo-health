@@ -465,6 +465,81 @@ body {
   gap: 20px;
   align-items: start;
 }
+.doctor-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+
+/* --------------------------------------------------------------- follow-up
+   Booking the next visit is part of finishing a consult — the picker lives
+   inside the ticket, below the tear line, where Done normally sits. */
+.fu { padding: 18px 24px 20px; display: flex; flex-direction: column; gap: 14px; }
+.fu-controls { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.fu-field { display: flex; flex-direction: column; gap: 5px; }
+.fu-label {
+  font-family: var(--font-data);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+.fu-toggle { display: flex; gap: 6px; }
+.fu-hint { margin: 0; color: var(--muted); font-size: 13px; }
+.fu-slots { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.slot-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: 1.5px solid var(--edge);
+  border-radius: 4px;
+  background: var(--panel);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.slot-chip:hover { background: var(--accent-soft); border-color: var(--accent); }
+.slot-chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.slot-chip-time { font-family: var(--font-data); font-size: 14px; font-weight: 600; }
+.slot-chip-provider { font-size: 11.5px; color: var(--muted); }
+
+.date-input {
+  height: 44px;
+  border: 1.5px solid var(--edge);
+  border-radius: 4px;
+  padding: 0 12px;
+  font: 500 14px var(--font-data);
+  color: var(--ink);
+  background: var(--panel);
+}
+
+/* ------------------------------------------------------------ availability
+   "How free am I" — the day's slot sheet at a glance. */
+.avail-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.avail-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.avail-summary { font-size: 14px; color: var(--muted); }
+.avail-count {
+  font-family: var(--font-data);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.avail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 6px;
+}
+.avail-chip {
+  font-family: var(--font-data);
+  font-size: 12px;
+  text-align: center;
+  padding: 7px 4px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+}
+.avail-open { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.avail-booked { background: var(--paper); color: var(--muted); }
+.avail-held { background: var(--amber-soft); color: var(--amber-ink); }
 
 /* ----------------------------------------------------------------- ledger */
 .table-scroll { overflow-x: auto; }
@@ -515,6 +590,31 @@ body {
   padding: 12px 16px;
   font-size: 14.5px;
 }
+
+.banner-ok {
+  border: 1.5px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-size: 14.5px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.banner-ok-dismiss {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: 600 13.5px var(--font-ui);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+.banner-ok-dismiss:hover { text-decoration: underline; }
+
+.emergency-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .skeleton-list { display: flex; flex-direction: column; gap: 10px; }
 .skeleton-list i {

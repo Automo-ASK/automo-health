@@ -82,9 +82,10 @@ app.get("/api/v1/services", (_req, res) => res.json(services));
 
 app.get("/api/v1/slots", (req: Request, res: Response) => {
   expireStaleHolds();
-  const { service_id, date, include } = req.query as Record<string, string>;
+  const { service_id, date, include, provider_id } = req.query as Record<string, string>;
   let result = slots.filter((s) => (include === "all" ? true : s.status === "open"));
   if (service_id) result = result.filter((s) => s.service_id === service_id);
+  if (provider_id) result = result.filter((s) => s.provider_id === provider_id);
   if (date) result = result.filter((s) => s.start_time.startsWith(date));
   result = [...result].sort((a, b) => a.start_time.localeCompare(b.start_time));
   res.json(result.map(withProviderName));
@@ -188,6 +189,47 @@ app.get("/api/v1/appointments/:id", (req, res) => {
   const a = appointments.find((x) => x.id === req.params.id);
   if (!a) return res.status(404).json({ error: "not_found" });
   res.json(serializeAppointment(a));
+});
+
+// Follow-up booking (doctor action) — added Day 7, confirm at standup.
+// Mirrors Koded's real /appointments/{id}/follow-up. Books the next visit
+// for the same patient off this one; the notification leg then prompts the
+// patient to confirm and pay (PRD 8.3). The next-appointment step sits
+// before Done in the close flow.
+app.post("/api/v1/appointments/:id/follow-up", (req, res) => {
+  expireStaleHolds();
+  const parent = appointments.find((x) => x.id === req.params.id);
+  if (!parent) return res.status(404).json({ error: "not_found" });
+  const { slot_id, service_id } = req.body ?? {};
+  const slot = slots.find((s) => s.id === slot_id);
+  if (!slot || slot.status !== "open") {
+    return res.status(409).json({ error: "slot_unavailable" });
+  }
+  slot.status = "booked";
+  const svc = services.find((s) => s.id === (service_id ?? slot.service_id));
+  const fee = svc?.fee ?? 500000;
+  const apt: Appointment = {
+    id: nextId("apt"),
+    patient_id: parent.patient_id,
+    slot_id: slot.id,
+    service_id: svc?.id ?? slot.service_id,
+    type: svc?.type === "virtual" ? "virtual" : svc?.type === "lab_test" ? "lab" : "physical",
+    channel: patients.find((p) => p.id === parent.patient_id)?.preferred_channel ?? "whatsapp",
+    status: "confirmed",
+    consultation_fee: fee,
+    platform_fee: PLATFORM_FEE_KOBO,
+    amount: fee + PLATFORM_FEE_KOBO,
+    currency: "NGN",
+    hold_expires_at: null,
+    created_at: new Date().toISOString(),
+  };
+  appointments.push(apt);
+  log("follow-up booked", apt.id, "off", parent.id, "-> notify patient to confirm & pay");
+  res.status(201).json({
+    ...serializeAppointment(apt),
+    provider_name: providerName(slot.provider_id),
+    service_name: serviceName(apt.service_id),
+  });
 });
 
 // Cancel (patient action, pre-visit): releases the slot, expires the payment.
@@ -337,6 +379,85 @@ app.post("/api/v1/emergencies/:id/ack", (req, res) => {
   e.status = "acknowledged";
   log("emergency acknowledged", e.id);
   res.json(e);
+});
+
+// Make room (doctor action) — added Day 7, confirm at standup. PRD 8.6:
+// the scheduled patient is shifted to the nearest available time (Automo
+// apologises to them) and the emergency patient is seated now.
+app.post("/api/v1/emergencies/:id/make-room", (req, res) => {
+  expireStaleHolds();
+  const e = emergencies.find((x) => x.id === req.params.id);
+  if (!e) return res.status(404).json({ error: "not_found" });
+  const providerId = (req.body?.provider_id as string) ?? "prov_ade";
+  const day = dateKey(new Date());
+  const active: Appointment["status"][] = ["confirmed", "checked_in", "in_progress"];
+
+  // Who is scheduled right now with this provider?
+  const queueRows = appointments
+    .filter((a) => {
+      const s = slots.find((y) => y.id === a.slot_id);
+      return s && s.provider_id === providerId && s.start_time.startsWith(day) && active.includes(a.status);
+    })
+    .sort((x, y) => {
+      const sx = slots.find((s) => s.id === x.slot_id)!.start_time;
+      const sy = slots.find((s) => s.id === y.slot_id)!.start_time;
+      return sx.localeCompare(sy);
+    });
+  const bumped = queueRows[0];
+
+  // The emergency patient takes the front of the queue.
+  let seatSlot: Slot | undefined;
+  let bumpedTo: { patient_name: string; new_time: string } | null = null;
+
+  if (bumped) {
+    const bumpedSlot = slots.find((s) => s.id === bumped.slot_id)!;
+    const nextOpen = slots
+      .filter(
+        (s) =>
+          s.provider_id === providerId &&
+          s.status === "open" &&
+          s.start_time.startsWith(day) &&
+          s.start_time > bumpedSlot.start_time
+      )
+      .sort((a, b) => a.start_time.localeCompare(b.start_time))[0];
+    if (nextOpen) {
+      // Shift the scheduled patient; their old slot seats the emergency.
+      nextOpen.status = "booked";
+      bumped.slot_id = nextOpen.id;
+      seatSlot = bumpedSlot;
+      const pat = patients.find((p) => p.id === bumped.patient_id);
+      bumpedTo = { patient_name: pat?.name ?? "Patient", new_time: nextOpen.start_time };
+      log("emergency reshuffle:", pat?.name, "->", nextOpen.start_time, "(apology notification fires)");
+    }
+  }
+  if (!seatSlot) {
+    // Nobody to bump (or no room to shift them): take the nearest open slot.
+    seatSlot = slots
+      .filter((s) => s.provider_id === providerId && s.status === "open" && s.start_time.startsWith(day))
+      .sort((a, b) => a.start_time.localeCompare(b.start_time))[0];
+    if (seatSlot) seatSlot.status = "booked";
+  }
+  if (!seatSlot) return res.status(409).json({ error: "no_room_today" });
+
+  const seated: Appointment = {
+    id: nextId("apt"),
+    patient_id: e.patient_id,
+    slot_id: seatSlot.id,
+    service_id: "svc_consult",
+    type: "physical",
+    channel: patients.find((p) => p.id === e.patient_id)?.preferred_channel ?? "whatsapp",
+    status: "checked_in",
+    consultation_fee: services.find((s) => s.id === "svc_consult")?.fee ?? 500000,
+    platform_fee: PLATFORM_FEE_KOBO,
+    amount: (services.find((s) => s.id === "svc_consult")?.fee ?? 500000) + PLATFORM_FEE_KOBO,
+    currency: "NGN",
+    hold_expires_at: null,
+    created_at: new Date().toISOString(),
+  };
+  appointments.push(seated);
+  e.status = "acknowledged";
+  log("emergency seated", e.id, "as", seated.id, bumpedTo ? `(bumped ${bumpedTo.patient_name})` : "(no bump needed)");
+  res.json({ emergency: e, seated: serializeAppointment(seated), bumped_to: bumpedTo });
 });
 
 // ---- payments -------------------------------------------------------------

@@ -48,6 +48,9 @@ All money is in **kobo** (integer). All times are **WAT (UTC+1)**, ISO-8601.
 
 - `date` optional. Omitted → next available across the coming days.
 - Returns only bookable (`open`) slots unless `?include=all`.
+- *Added Day 7, confirm at standup:* `provider_id` filter — with `include=all`
+  this is the doctor's own day sheet ("how free am I"), open vs held vs
+  booked.
 
 ```json
 [
@@ -179,6 +182,19 @@ notification.
 
 `200` → updated appointment; response includes `"next": { "id": "apt_002", ... } | null`.
 
+### Book a follow-up (doctor action) — *added Day 7, confirm at standup*
+
+`POST /api/v1/appointments/:id/follow-up`  `{ "slot_id": "slot_b2", "service_id": "svc_followup" }`
+
+Books the patient's next visit off this appointment (PRD 8.3 — booking the
+next visit is part of finishing a consult). Same patient, chosen open slot;
+`service_id` optional (defaults to the slot's service). The appointment is
+created `confirmed` and the notification leg prompts the patient to confirm
+and pay. Mirrors the real service's `/appointments/{id}/follow-up`.
+
+`201` → the new appointment, plus `provider_name` and `service_name`.
+`409 { "error": "slot_unavailable" }` if the slot was taken.
+
 ### Day summary (cashier screen) — *added Day 7, confirm at standup*
 
 `GET /api/v1/appointments/day?date=2026-07-14` — every appointment on the
@@ -238,7 +254,23 @@ acknowledges. Never a replacement for clinical triage.
 ```
 
 `POST /api/v1/emergencies/:id/ack` → marks it `acknowledged` (doctor has seen
-it and is making room).
+it; it was handled outside the queue).
+
+`POST /api/v1/emergencies/:id/make-room`  `{ "provider_id": "prov_ade" }` —
+seats the emergency patient at the front of that provider's queue. If someone
+is scheduled at that moment they are shifted to the provider's nearest open
+slot and the apology + new time go out automatically (PRD 8.6/11). Response:
+
+```json
+{
+  "emergency": { "id": "emg_001", "status": "acknowledged" },
+  "seated": { "id": "apt_009", "status": "checked_in" },
+  "bumped_to": { "patient_name": "Amina Bello", "new_time": "2026-07-14T10:20:00+01:00" }
+}
+```
+
+`bumped_to` is `null` when nobody had to move. `409 { "error": "no_room_today" }`
+if the provider has no open slot left today.
 
 ---
 
