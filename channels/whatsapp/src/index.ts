@@ -3,6 +3,10 @@ import cors from "cors";
 import { config } from "./config.js";
 import { ensureInstance, setWebhook, connect, connectionState, sendText } from "./evolution.js";
 import { handleIncoming } from "./handler.js";
+import { setOutbound, onBackendEvent } from "./payments.js";
+
+// Proactive messages (payment confirmations) go out through Evolution too.
+setOutbound(sendText);
 
 const app = express();
 app.use(cors());
@@ -59,6 +63,19 @@ app.post("/send", async (req: Request, res: Response) => {
   }
 });
 
+// ---- Backend notification webhook ------------------------------------------
+// Koded's reconciliation POSTs {event, data} here when NOTIFICATIONS_WEBHOOK_URL
+// points at this service — instant payment confirmations without polling.
+app.post("/webhook/payments", async (req: Request, res: Response) => {
+  res.sendStatus(200); // ack fast; notifications must never block the backend
+  try {
+    const { event, data } = req.body ?? {};
+    if (event) await onBackendEvent(String(event), data ?? {});
+  } catch (err) {
+    log("payment webhook error:", err instanceof Error ? err.message : err);
+  }
+});
+
 // ---- Evolution webhook ----------------------------------------------------
 
 app.post("/webhook/evolution", async (req: Request, res: Response) => {
@@ -78,6 +95,7 @@ app.post("/webhook/evolution", async (req: Request, res: Response) => {
       }
       log("in <-", parsed.jid, JSON.stringify(parsed.text));
       const answer = await handleIncoming(parsed.jid, parsed.text);
+      if (!answer) continue; // reply already went out proactively
       await sendText(parsed.jid, answer);
       log("out ->", parsed.jid, JSON.stringify(answer.slice(0, 60)));
     }

@@ -33,6 +33,7 @@ src/
 ├── provision.ts      `npm run provision` — link the WhatsApp number (QR)
 ├── aiClient.ts       AI service client + local stub
 ├── backend.ts        Booking API client
+├── payments.ts       pay-link + payment watcher (poll ∥ notification webhook)
 ├── conversation.ts   per-thread state + booking-flow stage (in-memory)
 ├── messages.ts       localized templates (en/pidgin/yo) for anything with real data
 └── handler.ts        the message flow: AI intent → services → slots → hold
@@ -55,5 +56,7 @@ Baileys connection bugs. See root README for the no-phone webhook test.
 Day 1 connect + echo/menu ✅ · Day 2 per-thread conversation state + intent via the
 AI service (stub, swap-ready to Adam's live `/api/v1/ai/interpret`) ✅ · Day 3 booking
 happy path on stubs (services → slots → name → hold, `pending_payment`) + localized
-templates en/pidgin (+yo best-effort, polish on day 6) ✅ · Day 4 pay link + webhook
-back into thread.
+templates en/pidgin (+yo best-effort, polish on day 6) ✅ · Day 4 pay link in-chat +
+payment confirmation folded back into the thread (poll ∥ `POST /webhook/payments`
+notification sink for Koded's reconciliation hooks) ✅ · Day 6 full run on the real
+backend.

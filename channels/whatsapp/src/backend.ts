@@ -85,6 +85,36 @@ export async function createAppointment(input: {
   }
 }
 
+export interface PaymentLink {
+  payment_id: string;
+  method: "link";
+  url: string;
+  amount: number; // kobo
+  currency: string;
+  expires_at: string;
+}
+
+export interface PaymentStatusRead {
+  payment_id: string;
+  status: "pending" | "paid" | "failed" | "expired";
+  amount: number;
+  method: string;
+  appointment_id: string;
+}
+
+/** In-chat checkout link for a held appointment. */
+export async function createPaymentLink(appointmentId: string): Promise<PaymentLink> {
+  const { data } = await http.post<PaymentLink>("/api/v1/payments/link", {
+    appointment_id: appointmentId,
+  });
+  return data;
+}
+
+export async function getPayment(paymentId: string): Promise<PaymentStatusRead> {
+  const { data } = await http.get<PaymentStatusRead>(`/api/v1/payments/${paymentId}`);
+  return data;
+}
+
 /** Releases a held/booked slot back to open (patient changed their mind). */
 export async function cancelAppointment(id: string): Promise<void> {
   await http.post(`/api/v1/appointments/${id}/cancel`);

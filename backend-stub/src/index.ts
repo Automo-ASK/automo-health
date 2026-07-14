@@ -242,6 +242,34 @@ app.post("/api/v1/appointments/:id/close", (req, res) => {
 
 // ---- payments -------------------------------------------------------------
 
+// Cashier's day view: cleared payments for a date. Added Day 6 — the cashier
+// screen needs the day's consultation revenue; the facility sees its own money
+// (consultation_fee) and the Automo platform fee stays out of the UI.
+app.get("/api/v1/payments", (req: Request, res: Response) => {
+  const { date } = req.query as Record<string, string>;
+  const day = date ?? dateKey(new Date());
+  const rows = payments
+    .filter((p) => p.status === "paid" && (p.confirmed_at ?? "").startsWith(day))
+    .map((p) => {
+      const apt = appointments.find((a) => a.id === p.appointment_id);
+      const pat = patients.find((x) => x.id === apt?.patient_id);
+      return {
+        payment_id: p.id,
+        appointment_id: p.appointment_id,
+        patient_name: pat?.name ?? "Patient",
+        service_name: apt ? serviceName(apt.service_id) : "Service",
+        method: p.method,
+        amount: p.amount,
+        consultation_fee: apt?.consultation_fee ?? p.amount,
+        platform_fee: apt?.platform_fee ?? 0,
+        paid_at: p.confirmed_at,
+        channel: apt?.channel ?? "unknown",
+      };
+    })
+    .sort((a, b) => (a.paid_at ?? "").localeCompare(b.paid_at ?? ""));
+  res.json(rows);
+});
+
 app.post("/api/v1/payments/link", (req, res) => {
   const a = appointments.find((x) => x.id === req.body?.appointment_id);
   if (!a) return res.status(404).json({ error: "appointment_not_found" });

@@ -13,4 +13,7 @@ export const config = {
   backendUrl: (process.env.BACKEND_URL ?? "http://localhost:3002").replace(/\/$/, ""),
   aiServiceUrl: (process.env.AI_SERVICE_URL ?? "").replace(/\/$/, ""),
   aiMaxHistoryTurns: Number(process.env.AI_MAX_HISTORY_TURNS ?? 10),
+  // How often we poll the backend for a pending payment (stub mode / fallback
+  // when the notification webhook isn't pointed at us).
+  paymentPollMs: Number(process.env.PAYMENT_POLL_MS ?? 5000),
 };

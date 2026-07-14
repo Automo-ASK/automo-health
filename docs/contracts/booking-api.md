@@ -206,6 +206,31 @@ The AI/channel layer never decides money arrived — only the webhook does.
 `GET /api/v1/payments/:id` → `{ payment_id, status, ... }`.
 `status` ∈ `pending | paid | failed | expired`.
 
+### Day listing (cashier screen) — *added Day 6, confirm at standup*
+
+`GET /api/v1/payments?date=2026-07-14` — cleared (`paid`) payments for the
+date (default today), oldest first:
+
+```json
+[
+  {
+    "payment_id": "pay_001",
+    "appointment_id": "apt_001",
+    "patient_name": "Chidi Okafor",
+    "service_name": "General Consultation",
+    "method": "link",
+    "amount": 510000,
+    "consultation_fee": 500000,
+    "platform_fee": 10000,
+    "paid_at": "2026-07-14T09:12:00Z",
+    "channel": "whatsapp"
+  }
+]
+```
+
+The cashier UI shows **consultation_fee** (the facility's money) — the Automo
+platform fee is never presented as facility revenue.
+
 ### Webhook (processor → backend)
 
 `POST /api/v1/payments/webhook` — signature-verified in the real service.

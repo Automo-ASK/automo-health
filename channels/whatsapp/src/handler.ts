@@ -27,6 +27,7 @@ import {
   type Slot,
 } from "./backend.js";
 import { t, fmtDay, fmtTime, watDateKey } from "./messages.js";
+import { beginPaymentWatch, stopPaymentWatch, checkPaymentNow } from "./payments.js";
 
 const MAX_OFFERED_SLOTS = 6;
 
@@ -36,7 +37,10 @@ export async function handleIncoming(jid: string, text: string): Promise<string>
   appendTurn(convo, "user", text);
 
   try {
-    return finalize(convo, await route(convo, text, firstContact));
+    const reply = await route(convo, text, firstContact);
+    // Empty reply = the answer already went out proactively (e.g. the payment
+    // watcher sent the confirmation mid-turn). Nothing more to say.
+    return reply ? finalize(convo, reply) : "";
   } catch (err) {
     console.error("[whatsapp] handler error:", err instanceof Error ? err.message : err);
     return finalize(convo, t(convo.language, "backend_down"));
@@ -127,6 +131,19 @@ async function route(
     return ai.reply;
   }
 
+  // "I don pay o" while we're waiting on the money: check right now instead
+  // of making them wait for the next poll tick.
+  if (
+    flow.stage === "held" &&
+    flow.appointmentId &&
+    (ai.suggested_action === "awaiting_payment" ||
+      /\b(paid|don pay|i (don|have|already) (pay|paid|transfer)|sent (the )?money|transfer(red)? (the )?money|mo ti san)\b/i.test(text))
+  ) {
+    const status = await checkPaymentNow(flow.appointmentId);
+    // If paid, checkPaymentNow already sent the confirmation and reset the flow.
+    return status === "paid" ? "" : t(convo.language, "payment_pending");
+  }
+
   // Post-hold corrections. A different service, day, or time means the held
   // slot is wrong: release it and re-offer. A new name alone keeps the slot
   // and rebooks it under the corrected name.
@@ -172,6 +189,7 @@ async function route(
 async function releaseHold(convo: ConversationState): Promise<void> {
   const flow = convo.booking;
   if (!flow.appointmentId) return;
+  stopPaymentWatch(flow.appointmentId); // no expiry/confirm chatter for a dead hold
   try {
     await cancelAppointment(flow.appointmentId);
     console.log(`[whatsapp] hold released ${flow.appointmentId}`);
@@ -272,16 +290,34 @@ async function createHold(convo: ConversationState): Promise<string> {
   flow.stage = "held";
   flow.appointmentId = apt.id;
   console.log(`[whatsapp] hold created ${apt.id} slot=${chosenSlot.id} for ${convo.phone}`);
-  return t(convo.language, "held", {
+  const doctor = apt.slot?.provider_name ?? chosenSlot.provider_name;
+  const heldMsg = t(convo.language, "held", {
     name: patientName.split(" ")[0], // first name, like a person would
     service: service.name,
-    doctor: apt.slot?.provider_name ?? chosenSlot.provider_name,
+    doctor,
     day: fmtDay(chosenSlot.start_time),
     time: fmtTime(chosenSlot.start_time),
     amount: naira(apt.amount), // one total — the fee split is internal
     expiry: apt.hold_expires_at ? fmtTime(apt.hold_expires_at) : "15 minutes from now",
     ref: apt.id,
   });
+
+  // Day 4: the pay link rides in the same message; payment confirms the
+  // booking and the watcher folds the confirmation back into this thread.
+  try {
+    const payMsg = await beginPaymentWatch(convo, {
+      appointmentId: apt.id,
+      name: patientName,
+      service: service.name,
+      doctor,
+      startTime: chosenSlot.start_time,
+    });
+    return `${heldMsg}\n\n${payMsg}`;
+  } catch (err) {
+    // The hold stands; payment can be retried in the next message.
+    console.error("[whatsapp] pay link failed:", err instanceof Error ? err.message : err);
+    return heldMsg;
+  }
 }
 
 // ---- small parsers ----------------------------------------------------------

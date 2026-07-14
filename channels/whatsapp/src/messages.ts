@@ -46,15 +46,50 @@ const templates = {
     en:
       "✅ All set, {name}! Your appointment is reserved.\n\n" +
       "🧾 {service}\n👨‍⚕️ {doctor}\n🗓 {day} at {time}\n💰 {amount}\n\n" +
-      "We're holding this spot for you until {expiry}. Your payment link is coming next — payment confirms it. Ref: {ref}",
+      "We're holding this spot for you until {expiry}. Ref: {ref}",
     pidgin:
       "✅ Correct, {name}! We don reserve am for you.\n\n" +
       "🧾 {service}\n👨‍⚕️ {doctor}\n🗓 {day} by {time}\n💰 {amount}\n\n" +
-      "We go hold dis spot for you till {expiry}. Payment link dey come now now — na payment go confirm am. Ref: {ref}",
+      "We go hold dis spot for you till {expiry}. Ref: {ref}",
     yo:
       "✅ Ó ti ṣetán, {name}! A ti fi àyè rẹ pamọ́.\n\n" +
       "🧾 {service}\n👨‍⚕️ {doctor}\n🗓 {day} ní {time}\n💰 {amount}\n\n" +
-      "A ó dì àyè yìí mú fún ọ títí di {expiry}. Ìjápọ̀ ìsanwó ń bọ̀ — ìsanwó ni yóò fi ìdí rẹ̀ múlẹ̀. Ref: {ref}",
+      "A ó dì àyè yìí mú fún ọ títí di {expiry}. Ref: {ref}",
+  },
+  pay_link: {
+    en:
+      "💳 To confirm it, pay {amount} securely here:\n{url}\n\n" +
+      "The link works until {expiry} — I'll confirm here the moment your payment lands ✅",
+    pidgin:
+      "💳 To confirm am, pay {amount} for here:\n{url}\n\n" +
+      "Di link go work till {expiry} — once your payment land, I go confirm am here sharp sharp ✅",
+    yo:
+      "💳 Láti fìdí rẹ̀ múlẹ̀, san {amount} níbí:\n{url}\n\n" +
+      "Ìjápọ̀ náà ń ṣiṣẹ́ títí di {expiry} — tí owó rẹ bá dé, màá jẹ́rìí sí i níbí ✅",
+  },
+  payment_confirmed: {
+    en:
+      "🎉 Payment received — you're booked, {name}!\n\n" +
+      "🧾 {service}\n👨‍⚕️ {doctor}\n🗓 {day} at {time}\n\n" +
+      "Please arrive 10 minutes early. Ref: {ref}. See you soon!",
+    pidgin:
+      "🎉 Payment don enter — you don book am, {name}!\n\n" +
+      "🧾 {service}\n👨‍⚕️ {doctor}\n🗓 {day} by {time}\n\n" +
+      "Abeg reach 10 minutes before time. Ref: {ref}. We dey expect you!",
+    yo:
+      "🎉 Owó ti wọlé — o ti gba àyè rẹ, {name}!\n\n" +
+      "🧾 {service}\n👨‍⚕️ {doctor}\n🗓 {day} ní {time}\n\n" +
+      "Jọ̀wọ́ dé ní ìṣẹ́jú mẹ́wàá ṣáájú àkókò. Ref: {ref}. A ó rí ọ láìpẹ́!",
+  },
+  payment_pending: {
+    en: "I haven't seen the payment yet 👀 It can take a minute to land — I'll confirm here the moment it does.",
+    pidgin: "I never see di payment o 👀 E fit take small time — once e land, I go confirm am here one time.",
+    yo: "N kò tíì rí owó náà 👀 Ó lè gba ìṣẹ́jú díẹ̀ — tí ó bá dé, màá jẹ́ kí o mọ̀ níbí.",
+  },
+  payment_expired: {
+    en: "⏰ The payment window for your {service} booking closed, so the hold was released. No wahala — say the word and I'll find you a new time.",
+    pidgin: "⏰ Time to pay for your {service} booking don pass, so we release di slot. No wahala — just talk am, I go find you another time.",
+    yo: "⏰ Àkókò ìsanwó fún {service} ti kọjá, a sì ti tú àyè náà sílẹ̀. Kò burú — sọ fún mi, màá wá àkókò mìíràn fún ọ.",
   },
   updated_intro: {
     en: "Got it — I've updated it ✏️",
