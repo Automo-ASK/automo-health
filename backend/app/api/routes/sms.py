@@ -1,4 +1,4 @@
-"""Africa's Talking inbound SMS webhook — Day 4: conversational booking flow.
+"""Africa's Talking inbound SMS webhook — Day 4-6: conversational booking flow.
 
 Conversation state machine (persisted in Conversation.state JSONB):
 
@@ -6,17 +6,24 @@ Conversation state machine (persisted in Conversation.state JSONB):
   service_key: "1" | "2" | "3"        — set when service is identified
   service_type: str                    — AI-extracted type, for display
   slot_label: str                      — formatted WAT time last shown
+  misunderstood_count: int             — consecutive turns with unclear intent
 
 Turn logic per inbound SMS:
+  0. Built-in commands (checked before state, no AI call):
+       RESET / START OVER  → clear state, send welcome message
+       HELP / INFO         → send clinic info, do not change state
   1. If stage == "slot_offered":
        YES → book immediately (no AI call), stage → "booked"
        NO  → reset state to greeting, send decline message
        ?   → fall through to AI (step 2), then re-ask if still unclear
   2. AI interprets every turn that didn't resolve in step 1.
-       suggested_action == "show_slots" + service_type  → fetch real slot, send offer
+       suggested_action == "human_handoff"           → send handoff message
+       suggested_action == "show_slots" + service_type → fetch real slot, send offer
        suggested_action == "confirm_booking" + service_key in state → book
        otherwise → pass AI reply through, track partial booking state
-  3. Persist history + state, send reply via AT SMS.
+  3. After 3 consecutive unclear turns (UNKNOWN intent, no service extracted),
+     escalate to human handoff automatically.
+  4. Persist history + state, send reply via AT SMS.
 
 Africa's Talking expects HTTP 200; we always return it.
 Webhook URL: POST /api/v1/channels/sms/inbound
@@ -42,6 +49,8 @@ from app.services import ai_service, sms_booking, ussd_booking
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/channels", tags=["channels"])
+
+_MISUNDERSTOOD_THRESHOLD = 3
 
 
 def _get_or_create_conversation(db: Session, phone: str) -> Conversation:
@@ -106,6 +115,24 @@ def sms_inbound(
     lang: str = conv.language or "en"
     reply: str | None = None
 
+    # ── 0. Built-in commands (no AI, no state dependency) ────────────────────
+    if sms_booking.is_reset_command(text):
+        state = {"stage": "greeting"}
+        reply = sms_booking.reset_reply(lang)
+        _persist_and_send(
+            conv=conv, db=db, phone=from_, user_text=text,
+            reply=reply, history=history, state=state, lang=lang,
+        )
+        return {"status": "ok"}
+
+    if sms_booking.is_help_command(text):
+        reply = sms_booking.help_reply(lang)
+        _persist_and_send(
+            conv=conv, db=db, phone=from_, user_text=text,
+            reply=reply, history=history, state=state, lang=lang,
+        )
+        return {"status": "ok"}
+
     # ── 1. Fast path: patient responded to a slot offer ───────────────────────
     if stage == "slot_offered":
         affirmative = sms_booking.is_affirmative(text)
@@ -136,8 +163,14 @@ def sms_inbound(
             )
         )
         lang = ai_result.language.value
+        misunderstood_count: int = state.get("misunderstood_count", 0)
 
-        if (
+        # Human handoff — AI explicitly escalates or we've hit the threshold
+        if ai_result.suggested_action == SuggestedAction.HUMAN_HANDOFF:
+            reply = sms_booking.human_handoff_reply(lang)
+            state["misunderstood_count"] = 0
+
+        elif (
             ai_result.suggested_action == SuggestedAction.SHOW_SLOTS
             and ai_result.entities.service_type
         ):
@@ -152,6 +185,7 @@ def sms_inbound(
                 service_key=service_key,
                 service_type=ai_result.entities.service_type,
                 slot_label=slot_label,
+                misunderstood_count=0,
             )
 
         elif (
@@ -163,6 +197,7 @@ def sms_inbound(
                 db, phone=from_, service_key=state["service_key"], lang=lang
             )
             state["stage"] = "booked"
+            state["misunderstood_count"] = 0
 
         elif stage == "slot_offered":
             # Patient's response was unclear even after AI — re-show the slot offer
@@ -170,6 +205,7 @@ def sms_inbound(
 
         else:
             reply = ai_result.reply
+
             # Track partial booking state across turns
             if ai_result.intent == Intent.BOOK:
                 if ai_result.entities.service_type:
@@ -178,6 +214,16 @@ def sms_inbound(
                         ai_result.entities.service_type
                     )
                 state.setdefault("stage", "awaiting_service")
+                state["misunderstood_count"] = 0
+            elif ai_result.intent == Intent.UNKNOWN and not ai_result.entities.service_type:
+                # Consecutive unclear turns — escalate after threshold
+                misunderstood_count += 1
+                state["misunderstood_count"] = misunderstood_count
+                if misunderstood_count >= _MISUNDERSTOOD_THRESHOLD:
+                    reply = sms_booking.human_handoff_reply(lang)
+                    state["misunderstood_count"] = 0
+            else:
+                state["misunderstood_count"] = 0
 
     _persist_and_send(
         conv=conv,
