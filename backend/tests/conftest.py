@@ -1,63 +1,100 @@
-"""Shared test fixtures."""
+"""Test harness (Day 7).
+
+Each test runs inside an outer transaction that is rolled back on teardown, so tests
+leave no residue in the (Neon) database. The session is opened with
+``join_transaction_mode="create_savepoint"`` so the service layer's ``commit()`` calls
+land as SAVEPOINT releases inside that outer transaction instead of persisting.
+
+Payments run in Paystack mock mode (placeholder key), so no network is needed.
+"""
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
-from app.main import app
-from app.models.enums import ChannelType
-
-
-@pytest.fixture()
-def client():
-    """FastAPI test client."""
-    return TestClient(app)
+from app.core.database import engine
+from app.models.patient import Patient
+from app.models.provider import Provider
+from app.models.service import Service
+from app.models.slot import Slot
 
 
-# ── Minimal ORM stubs ─────────────────────────────────────────────────────────
-
-def make_conversation(
-    *,
-    phone: str = "+2348012345678",
-    channel: str = ChannelType.SMS,
-    language: str = "en",
-    state: dict | None = None,
-    history: list | None = None,
-    last_reply: str | None = None,
-) -> MagicMock:
-    conv = MagicMock()
-    conv.id = uuid.uuid4()
-    conv.phone = phone
-    conv.channel = channel
-    conv.language = language
-    conv.state = state or {}
-    conv.history = history or []
-    conv.last_reply = last_reply
-    conv.last_message_at = datetime.now(timezone.utc)
-    return conv
+@pytest.fixture
+def db():
+    connection = engine.connect()
+    trans = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        yield session
+    finally:
+        session.close()
+        trans.rollback()
+        connection.close()
 
 
-@pytest.fixture()
-def mock_db():
-    """Session mock that returns a fresh conversation by default."""
-    db = MagicMock()
-    conv = make_conversation()
-
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = conv
-    db.execute.return_value = result
-
-    return db, conv
+def _uid() -> str:
+    return uuid.uuid4().hex[:12]
 
 
-@pytest.fixture(autouse=True)
-def no_at_sms():
-    """Prevent any real SMS from being sent in tests."""
-    with patch("app.services.africastalking.send_sms") as mock_send:
-        mock_send.return_value = {"SMSMessageData": {"Recipients": []}}
-        yield mock_send
+@dataclass
+class Scenario:
+    provider: Provider
+    service: Service
+    patient: Patient
+    slot: Slot
+
+
+@pytest.fixture
+def scenario(db: Session) -> Scenario:
+    """A fresh provider + service + open future slot + patient, with unique keys."""
+    uid = _uid()
+    provider = Provider(
+        full_name=f"Dr Test {uid}", email=f"prov-{uid}@test.local", specialty="GP"
+    )
+    db.add(provider)
+    db.flush()
+
+    service = Service(
+        provider_id=provider.id,
+        name="Consultation",
+        duration_minutes=30,
+        price_amount=500_000,  # ₦5,000.00
+        currency="NGN",
+    )
+    db.add(service)
+    db.flush()
+
+    start = datetime.now(timezone.utc) + timedelta(days=1)
+    slot = Slot(
+        provider_id=provider.id,
+        service_id=service.id,
+        start_time=start,
+        end_time=start + timedelta(minutes=30),
+    )
+    db.add(slot)
+
+    patient = Patient(
+        full_name=f"Patient {uid}", email=f"pat-{uid}@test.local", phone="+2348030000000"
+    )
+    db.add(patient)
+    db.commit()
+    return Scenario(provider=provider, service=service, patient=patient, slot=slot)
+
+
+def make_slot(db: Session, provider_id, service_id, *, days: int = 2) -> Slot:
+    """Create an extra open slot (e.g. for reschedule/follow-up targets)."""
+    start = datetime.now(timezone.utc) + timedelta(days=days)
+    slot = Slot(
+        provider_id=provider_id,
+        service_id=service_id,
+        start_time=start,
+        end_time=start + timedelta(minutes=30),
+    )
+    db.add(slot)
+    db.commit()
+    return slot

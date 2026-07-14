@@ -34,8 +34,9 @@ from app.models.enums import (
 from app.models.payment import Payment
 from app.models.slot import Slot
 from app.models.virtual_account import VirtualAccount
-from app.services import notifications, paystack
+from app.services import messaging, notifications, paystack
 from app.services.exceptions import NotFoundError
+from app.services.payments import _format_amount
 
 logger = logging.getLogger(__name__)
 
@@ -149,16 +150,24 @@ def confirm_payment(
         )
 
     expected = payment.amount
-    # Exact-amount match — under- or over-payment is not auto-confirmed.
+    # Exact-amount match — under- or over-payment is not auto-confirmed. Distinguish
+    # the two so ops can refund the difference (overpaid) or top up (underpaid).
     if amount_paid is None or amount_paid != expected:
         payment.gateway_response = gateway_response
         db.commit()
+        overpaid = amount_paid is not None and amount_paid > expected
         result = ReconcileResult(
             status="amount_mismatch", booking=booking, payment=payment,
-            detail=f"expected {expected}, got {amount_paid}",
+            detail=f"expected {expected}, got {amount_paid}"
+            + (" (overpaid)" if overpaid else " (underpaid)"),
+        )
+        event = (
+            NotificationEvent.PAYMENT_OVERPAID.value
+            if overpaid
+            else NotificationEvent.PAYMENT_MISMATCH.value
         )
         result._events.append((
-            NotificationEvent.PAYMENT_MISMATCH.value,
+            event,
             {"booking_id": str(booking.id), "expected": expected, "paid": amount_paid},
         ))
         _flush_events(result)
@@ -184,9 +193,27 @@ def confirm_payment(
         return result
 
     # --- Happy path: confirm the booking, book the slot, schedule the appointment ---
-    payment.status = PaymentStatus.SUCCESS
     payment.paid_at = now
     payment.gateway_response = gateway_response
+    return finalize_confirmation(db, booking, payment, amount_paid, now)
+
+
+def finalize_confirmation(
+    db: Session,
+    booking: Booking,
+    payment: Payment,
+    amount_paid: int | None,
+    now: datetime,
+) -> ReconcileResult:
+    """Confirm a booking whose (locked) payment has cleared.
+
+    Shared by webhook/verify reconciliation and the cashier's cash-collection path:
+    marks the payment SUCCESS, books the slot, closes the virtual account and creates
+    the Appointment. Assumes ``booking`` is already row-locked and PENDING_PAYMENT.
+    """
+    payment.status = PaymentStatus.SUCCESS
+    if payment.paid_at is None:
+        payment.paid_at = now
 
     booking.status = BookingStatus.CONFIRMED
 
@@ -227,6 +254,14 @@ def confirm_payment(
           "scheduled_start": appointment.scheduled_start.isoformat()}),
     ])
     _flush_events(result)
+
+    # Tell the patient their appointment is confirmed, over their channel.
+    when = appointment.scheduled_start.strftime("%a %d %b, %H:%M")
+    messaging.send_to_patient(
+        booking.patient,
+        f"✅ Payment received ({_format_amount(payment.amount, payment.currency)}). "
+        f"Your appointment is confirmed for {when}.",
+    )
     return result
 
 

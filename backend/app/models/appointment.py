@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import DateTime, ForeignKey, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -43,5 +43,20 @@ class Appointment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
     )
 
+    # Clinician notes; set on completion ("tick Done") or when creating a follow-up.
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Set when this appointment was created as a follow-up of an earlier one.
+    parent_appointment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("appointments.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+
     patient: Mapped["Patient"] = relationship(back_populates="appointments")
     booking: Mapped["Booking"] = relationship(back_populates="appointment")
+    parent: Mapped["Appointment | None"] = relationship(
+        remote_side="Appointment.id", backref="follow_ups"
+    )
