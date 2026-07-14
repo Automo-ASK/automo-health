@@ -1,13 +1,14 @@
-"""SMS booking helpers for the Day 4 conversational flow.
+"""SMS booking helpers for the conversational flow.
 
 Provides:
 - Multilingual slot offer / decline / re-ask message builders
-- Affirmation detector (fast keyword check, no AI call needed)
+- Affirmation / RESET / HELP command detectors (fast keyword checks, no AI call)
+- Human handoff, reset, and help reply builders
 - confirm_from_sms() — thin wrapper around ussd_booking.confirm() that strips
   the "END " prefix (USSD needs it; SMS does not)
 
-The affirmation detector intentionally covers common misspellings and
-Pidgin/Yoruba affirmatives so the patient doesn't need perfect spelling.
+All keyword sets are intentionally broad — they cover common misspellings,
+abbreviations, Pidgin, and Yoruba so the patient doesn't need perfect spelling.
 """
 
 from __future__ import annotations
@@ -83,7 +84,118 @@ _REASK: dict[str, str] = {
     ),
 }
 
-# Keyword sets for affirmation / negation detection.
+# ── Command keyword sets ──────────────────────────────────────────────────────
+# Checked before any AI call so they're always reliable, regardless of context.
+
+_RESET_KEYWORDS = frozenset({
+    "reset", "restart", "start", "start over", "startover", "begin", "new",
+    "back", "cancel all", "clear",
+    # pidgin
+    "start again", "begin again", "comot", "scratch",
+    # yoruba
+    "bẹrẹ", "bẹ̀rẹ̀",
+})
+
+_HELP_KEYWORDS = frozenset({
+    "help", "info", "information", "contact", "clinic",
+    "phone", "number", "address", "location", "hours",
+    # pidgin
+    "how", "wetin",
+    # yoruba
+    "iranlọwọ", "irànlọ́wọ́",
+})
+
+_RESET_REPLY: dict[str, str] = {
+    "en": (
+        "No problem! Let's start fresh.\n"
+        "What would you like to do?\n\n"
+        "1. Book appointment\n"
+        "2. Reschedule\n"
+        "3. Cancel\n\n"
+        "Or just tell me what you need."
+    ),
+    "pidgin": (
+        "No wahala! Make we start again.\n"
+        "Wetin you need today?\n\n"
+        "1. Book appointment\n"
+        "2. Change appointment\n"
+        "3. Cancel\n\n"
+        "Or just tell me."
+    ),
+    "yo": (
+        "Kò burú! Jẹ́ kí a bẹ̀rẹ̀ lẹẹkansii.\n"
+        "Kíni o nílò lónìí?\n\n"
+        "1. Ṣe adehun\n"
+        "2. Yi adehun padà\n"
+        "3. Fagilé adehun\n\n"
+        "Tàbí sọ ohun tí o nílò."
+    ),
+}
+
+_HELP_REPLY: dict[str, str] = {
+    "en": (
+        "Automo Health — Booking Help\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "📞 Clinic: 0800-AUTOMO\n"
+        "📍 12 Health Way, Victoria Island, Lagos\n"
+        "⏰ Mon-Fri 8am-5pm | Sat 9am-1pm\n\n"
+        "Services:\n"
+        "• Consultation — ₦2,000\n"
+        "• Lab Test — ₦1,500\n"
+        "• Virtual Consult — ₦1,000\n\n"
+        "Reply BOOK to book an appointment, or RESET to start over."
+    ),
+    "pidgin": (
+        "Automo Health — Help\n"
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📞 Clinic: 0800-AUTOMO\n"
+        "📍 12 Health Way, VI, Lagos\n"
+        "⏰ Mon-Fri 8am-5pm | Sat 9am-1pm\n\n"
+        "Services:\n"
+        "• See doctor — ₦2,000\n"
+        "• Lab Test — ₦1,500\n"
+        "• Virtual — ₦1,000\n\n"
+        "Reply BOOK to book, or RESET to start over."
+    ),
+    "yo": (
+        "Automo Health — Iranlọwọ\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📞 Ilé-iwosan: 0800-AUTOMO\n"
+        "📍 12 Health Way, Victoria Island, Lagos\n"
+        "⏰ Ọj.Aje-Ọj.Ẹti 8owurọ-5alẹ | Sat 9owurọ-1ọsan\n\n"
+        "Àwọn iṣẹ́:\n"
+        "• Ijẹrọ dokita — ₦2,000\n"
+        "• Idanwò yàrá — ₦1,500\n"
+        "• Abẹwo fóònu — ₦1,000\n\n"
+        "Fèsì BOOK láti ṣe adehun, tàbí RESET láti bẹ̀rẹ̀ lẹẹkansii."
+    ),
+}
+
+_HANDOFF_REPLY: dict[str, str] = {
+    "en": (
+        "I'm having trouble understanding your request.\n"
+        "Let me connect you with the clinic directly:\n\n"
+        "📞 Call: 0800-AUTOMO (0800-288666)\n"
+        "Available Mon-Fri 8am-5pm, Sat 9am-1pm.\n\n"
+        "Or reply RESET to try again."
+    ),
+    "pidgin": (
+        "I no fit understand you well.\n"
+        "Make clinic people help you directly:\n\n"
+        "📞 Call: 0800-AUTOMO (0800-288666)\n"
+        "Dey available Mon-Fri 8am-5pm, Sat 9am-1pm.\n\n"
+        "Or reply RESET to try again."
+    ),
+    "yo": (
+        "Mi ò lè mọ ohun tí o nílò.\n"
+        "Jẹ́ kí ilé-iwosan ṣe iranlọwọ fún ọ taara:\n\n"
+        "📞 Pe: 0800-AUTOMO (0800-288666)\n"
+        "Wà Mon-Fri 8owurọ-5alẹ, Sat 9owurọ-1ọsan.\n\n"
+        "Tàbí fèsì RESET láti gbìyànjú lẹẹkansii."
+    ),
+}
+
+# ── Affirmation / negation keyword sets ──────────────────────────────────────
 # Intentionally broad — covers abbreviations, Pidgin, common Yoruba.
 _YES_WORDS = frozenset({
     "yes", "yeah", "yep", "yh", "y",
@@ -163,3 +275,31 @@ def confirm_from_sms(db: Session, *, phone: str, service_key: str, lang: str) ->
     """
     result = ussd_booking.confirm(db, phone=phone, service_key=service_key, lang=lang)
     return result.removeprefix("END ")
+
+
+# ── Command helpers (Day 6) ───────────────────────────────────────────────────
+
+def is_reset_command(text: str) -> bool:
+    """Return True if the patient is asking to start the conversation over."""
+    stripped = text.strip().lower()
+    return stripped in _RESET_KEYWORDS or any(
+        stripped.startswith(kw) for kw in ("reset", "start over", "restart")
+    )
+
+
+def is_help_command(text: str) -> bool:
+    """Return True if the patient is asking for clinic info / help."""
+    stripped = text.strip().lower()
+    return stripped in _HELP_KEYWORDS or stripped.startswith("help")
+
+
+def reset_reply(lang: str) -> str:
+    return _RESET_REPLY.get(lang, _RESET_REPLY["en"])
+
+
+def help_reply(lang: str) -> str:
+    return _HELP_REPLY.get(lang, _HELP_REPLY["en"])
+
+
+def human_handoff_reply(lang: str) -> str:
+    return _HANDOFF_REPLY.get(lang, _HANDOFF_REPLY["en"])
