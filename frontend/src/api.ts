@@ -22,10 +22,39 @@ export interface QueueItem {
   position: number;
   is_next: boolean;
   patient_name: string;
+  patient_phone: string | null;
   type: string;
+  channel: string;
   service_name: string;
   slot_time: string;
   status: string;
+  /** Virtual consults: the home reading the patient reported. */
+  home_reading: string | null;
+  /** Lab visits: test details attached before the patient arrives. */
+  test_details: string | null;
+  collection_date: string | null;
+}
+
+export interface DayRow {
+  id: string;
+  patient_name: string;
+  service_name: string;
+  slot_time: string;
+  type: string;
+  channel: string;
+  status: string;
+  consultation_fee: number;
+  paid: boolean;
+}
+
+export interface Emergency {
+  id: string;
+  patient_name: string;
+  patient_phone: string | null;
+  category: string;
+  description: string;
+  status: "open" | "acknowledged";
+  created_at: string;
 }
 
 async function j<T>(res: Response): Promise<T> {
@@ -41,12 +70,24 @@ export const api = {
       j<QueueItem[]>(r)
     ),
 
-  closeVisit: (id: string, state: "done" | "follow_up" | "admitted") =>
+  closeVisit: (id: string, state: "done" | "follow_up" | "admitted", collectionDate?: string) =>
     fetch(`${BASE}/api/v1/appointments/${id}/close`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state }),
+      body: JSON.stringify(collectionDate ? { state, collection_date: collectionDate } : { state }),
     }).then((r) => j<unknown>(r)),
+
+  /** Every appointment on the day, all providers, all states — cashier view. */
+  day: (date?: string) =>
+    fetch(`${BASE}/api/v1/appointments/day${date ? `?date=${encodeURIComponent(date)}` : ""}`).then(
+      (r) => j<DayRow[]>(r)
+    ),
+
+  emergencies: () =>
+    fetch(`${BASE}/api/v1/emergencies?status=open`).then((r) => j<Emergency[]>(r)),
+
+  ackEmergency: (id: string) =>
+    fetch(`${BASE}/api/v1/emergencies/${id}/ack`, { method: "POST" }).then((r) => j<unknown>(r)),
 
   services: () =>
     fetch(`${BASE}/api/v1/services`).then((r) =>

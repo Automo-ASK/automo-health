@@ -61,6 +61,21 @@ export interface Appointment {
   currency: "NGN";
   hold_expires_at: string | null;
   created_at: string;
+  /** Virtual consults: the home reading the patient reported (PRD 8.4). */
+  home_reading?: string;
+  /** Lab visits: test details attached before the patient arrives (PRD 9.2). */
+  test_details?: string;
+  /** Lab visits: collection date the patient sees, set at results-ready. */
+  collection_date?: string | null;
+}
+
+export interface EmergencyRequest {
+  id: string;
+  patient_id: string;
+  category: string;
+  description: string; // one sentence, per the reviewing doctor
+  status: "open" | "acknowledged";
+  created_at: string;
 }
 
 export interface Payment {
@@ -120,6 +135,7 @@ export const slots: Slot[] = [];
 export const patients: Patient[] = [];
 export const appointments: Appointment[] = [];
 export const payments: Payment[] = [];
+export const emergencies: EmergencyRequest[] = [];
 
 let seq = 0;
 export const nextId = (prefix: string) => `${prefix}_${(++seq).toString().padStart(3, "0")}`;
@@ -173,44 +189,108 @@ export const nextId = (prefix: string) => `${prefix}_${(++seq).toString().padSta
   }
 })();
 
-// Seed a small doctor queue for TODAY so the dashboard has something to show.
+// Seed today's queues so every dashboard has something real to show:
+// physical + virtual consults for the doctors, tests with details for the
+// lab, and a mix of paid / awaiting / seen for the cashier's day view.
 (function seedQueue() {
   const today = new Date();
-  const seedPatients: Array<[string, string, AptStatus, number]> = [
-    ["Chidi Okafor", "2348012345670", "checked_in", 9],
-    ["Amina Bello", "2348012345671", "confirmed", 9],
-    ["Tunde Balogun", "2348012345672", "confirmed", 10],
+
+  interface SeedRow {
+    name: string;
+    phone: string;
+    status: AptStatus;
+    provider: string;
+    service: string;
+    type: Appointment["type"];
+    channel: string;
+    fee: number;
+    paid?: boolean; // create a matching cleared payment
+    home_reading?: string;
+    test_details?: string;
+  }
+
+  const rows: SeedRow[] = [
+    // Dr. Adeyemi's morning — one already seen, three waiting (one virtual).
+    { name: "Chidi Okafor", phone: "2348012345670", status: "done", provider: "prov_ade", service: "svc_consult", type: "physical", channel: "whatsapp", fee: 500000, paid: true },
+    { name: "Amina Bello", phone: "2348012345671", status: "checked_in", provider: "prov_ade", service: "svc_consult", type: "physical", channel: "whatsapp", fee: 500000, paid: true },
+    { name: "Tunde Balogun", phone: "2348012345672", status: "confirmed", provider: "prov_ade", service: "svc_consult", type: "physical", channel: "ussd", fee: 500000, paid: true },
+    {
+      name: "Mama Ronke Adesanya", phone: "2348012345673", status: "confirmed", provider: "prov_ade",
+      service: "svc_followup", type: "virtual", channel: "whatsapp", fee: 350000, paid: true,
+      home_reading: "BP 148/94, taken this morning",
+    },
+    // Lab desk — tests with details attached before the patient arrives.
+    {
+      name: "Kunle Afolayan", phone: "2348012345674", status: "confirmed", provider: "prov_lab",
+      service: "svc_lab_malaria", type: "lab", channel: "whatsapp", fee: 300000, paid: true,
+      test_details: "Malaria (RDT) — ordered by Dr. Adeyemi after yesterday's consult",
+    },
+    {
+      name: "Ngozi Okonkwo", phone: "2348012345675", status: "confirmed", provider: "prov_lab",
+      service: "svc_lab_malaria", type: "lab", channel: "sms", fee: 300000, paid: true,
+      test_details: "Malaria (RDT) — repeat test, fever persisting after treatment",
+    },
+    // Still owing: held slot, transfer not landed yet (cashier's "expected").
+    { name: "Ibrahim Musa", phone: "2348012345676", status: "pending_payment", provider: "prov_ade", service: "svc_consult", type: "physical", channel: "ussd", fee: 500000 },
   ];
-  seedPatients.forEach(([name, phone, status, hour], i) => {
+
+  for (const r of rows) {
     const pat: Patient = {
       id: nextId("pat"),
-      phone,
-      name,
+      phone: r.phone,
+      name: r.name,
       preferred_language: "en",
-      preferred_channel: "whatsapp",
+      preferred_channel: r.channel,
       consent: true,
     };
     patients.push(pat);
-    // grab a today slot for prov_ade and mark it booked
     const slot = slots.find(
-      (s) => s.provider_id === "prov_ade" && s.status === "open" && s.start_time.startsWith(dateKey(today))
+      (s) => s.provider_id === r.provider && s.status === "open" && s.start_time.startsWith(dateKey(today))
     );
-    if (slot) slot.status = "booked";
-    appointments.push({
+    if (slot) slot.status = r.status === "pending_payment" ? "held" : "booked";
+    const apt: Appointment = {
       id: nextId("apt"),
       patient_id: pat.id,
       slot_id: slot ? slot.id : "",
-      service_id: "svc_consult",
-      type: "physical",
-      channel: "whatsapp",
-      status,
-      consultation_fee: 500000,
+      service_id: r.service,
+      type: r.type,
+      channel: r.channel,
+      status: r.status,
+      consultation_fee: r.fee,
       platform_fee: PLATFORM_FEE,
-      amount: 500000 + PLATFORM_FEE,
+      amount: r.fee + PLATFORM_FEE,
       currency: "NGN",
-      hold_expires_at: null,
+      hold_expires_at: r.status === "pending_payment" ? new Date(Date.now() + 15 * 60_000).toISOString() : null,
       created_at: new Date().toISOString(),
-    });
+      home_reading: r.home_reading,
+      test_details: r.test_details,
+      collection_date: null,
+    };
+    appointments.push(apt);
+    if (r.paid) {
+      payments.push({
+        id: nextId("pay"),
+        appointment_id: apt.id,
+        method: r.channel === "whatsapp" ? "link" : "ussd_transfer",
+        amount: apt.amount,
+        currency: "NGN",
+        status: "paid",
+        processor_ref: `SEED${apt.id}`,
+        expires_at: new Date().toISOString(),
+        confirmed_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  // One open emergency so the doctor's alert surface is live (PRD 8.6):
+  // category plus one sentence, never free-text alone.
+  emergencies.push({
+    id: nextId("emg"),
+    patient_id: patients[patients.length - 1].id,
+    category: "Chest pain / breathing difficulty",
+    description: "My father is having chest pain and struggling to breathe.",
+    status: "open",
+    created_at: new Date(Date.now() - 4 * 60_000).toISOString(),
   });
 })();
 

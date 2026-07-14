@@ -9,6 +9,7 @@ import {
   patients,
   appointments,
   payments,
+  emergencies,
   nextId,
   dateKey,
   PLATFORM_FEE_KOBO,
@@ -150,6 +151,38 @@ app.post("/api/v1/appointments", (req: Request, res: Response) => {
   res.status(201).json(serializeAppointment(apt));
 });
 
+// Day summary (cashier screen) — added Day 7, confirm at standup.
+// Every appointment on the day across all providers, whatever its state, so
+// the cashier sees who came through, who is still expected, and who owes.
+// Registered before /appointments/:id so "day" is never read as an id.
+app.get("/api/v1/appointments/day", (req: Request, res: Response) => {
+  expireStaleHolds();
+  const { date } = req.query as Record<string, string>;
+  const day = date ?? dateKey(new Date());
+  const rows = appointments
+    .filter((a) => {
+      const slot = slots.find((s) => s.id === a.slot_id);
+      return slot && slot.start_time.startsWith(day) && a.status !== "cancelled";
+    })
+    .map((a) => {
+      const slot = slots.find((s) => s.id === a.slot_id)!;
+      const pat = patients.find((p) => p.id === a.patient_id);
+      return {
+        id: a.id,
+        patient_name: pat?.name ?? "Patient",
+        service_name: serviceName(a.service_id),
+        slot_time: slot.start_time,
+        type: a.type,
+        channel: a.channel,
+        status: a.status,
+        consultation_fee: a.consultation_fee,
+        paid: payments.some((p) => p.appointment_id === a.id && p.status === "paid"),
+      };
+    })
+    .sort((x, y) => x.slot_time.localeCompare(y.slot_time));
+  res.json(rows);
+});
+
 app.get("/api/v1/appointments/:id", (req, res) => {
   expireStaleHolds();
   const a = appointments.find((x) => x.id === req.params.id);
@@ -201,10 +234,15 @@ app.get("/api/v1/appointments", (req: Request, res: Response) => {
       position: i + 1,
       is_next: i === 0,
       patient_name: pat?.name ?? "Patient",
+      patient_phone: pat?.phone ?? null,
       type: a.type,
+      channel: a.channel,
       service_name: serviceName(a.service_id),
       slot_time: slot.start_time,
       status: a.status,
+      home_reading: a.home_reading ?? null,
+      test_details: a.test_details ?? null,
+      collection_date: a.collection_date ?? null,
     };
   });
   res.json(out);
@@ -221,6 +259,12 @@ app.post("/api/v1/appointments/:id/close", (req, res) => {
     admitted: "admitted",
   };
   a.status = map[state] ?? "done";
+  // Lab visits: the collection date the patient sees (PRD 9.2). The real
+  // service forwards it to the results-ready notification (Adam's leg).
+  if (typeof req.body?.collection_date === "string") {
+    a.collection_date = req.body.collection_date;
+    log("collection date set", a.id, "->", a.collection_date);
+  }
   log("appointment closed", a.id, "->", a.status);
 
   // find new next in the same day/provider
@@ -238,6 +282,61 @@ app.post("/api/v1/appointments/:id/close", (req, res) => {
       return sx.localeCompare(sy);
     })[0];
   res.json({ ...serializeAppointment(a), next: next ? { id: next.id } : null });
+});
+
+// ---- emergencies ----------------------------------------------------------
+// PRD 8.6: category plus one sentence, doctor alerted immediately. Added
+// Day 7, confirm at standup. Channels create; the doctor board polls and
+// acknowledges. Never a replacement for clinical triage.
+
+app.get("/api/v1/emergencies", (req: Request, res: Response) => {
+  const { status } = req.query as Record<string, string>;
+  const rows = emergencies
+    .filter((e) => (status ? e.status === status : true))
+    .map((e) => {
+      const pat = patients.find((p) => p.id === e.patient_id);
+      return { ...e, patient_name: pat?.name ?? "Patient", patient_phone: pat?.phone ?? null };
+    })
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  res.json(rows);
+});
+
+app.post("/api/v1/emergencies", (req: Request, res: Response) => {
+  const { patient, category, description } = req.body ?? {};
+  if (!category || !description) {
+    return res.status(400).json({ error: "category_and_description_required" });
+  }
+  let pat = patients.find((p) => p.phone === patient?.phone);
+  if (!pat) {
+    pat = {
+      id: nextId("pat"),
+      phone: patient?.phone ?? "unknown",
+      name: patient?.name ?? "Patient",
+      preferred_language: patient?.preferred_language ?? "en",
+      preferred_channel: patient?.preferred_channel ?? "whatsapp",
+      consent: Boolean(patient?.consent),
+    };
+    patients.push(pat);
+  }
+  const emg = {
+    id: nextId("emg"),
+    patient_id: pat.id,
+    category: String(category),
+    description: String(description),
+    status: "open" as const,
+    created_at: new Date().toISOString(),
+  };
+  emergencies.push(emg);
+  log("emergency raised", emg.id, emg.category);
+  res.status(201).json(emg);
+});
+
+app.post("/api/v1/emergencies/:id/ack", (req, res) => {
+  const e = emergencies.find((x) => x.id === req.params.id);
+  if (!e) return res.status(404).json({ error: "not_found" });
+  e.status = "acknowledged";
+  log("emergency acknowledged", e.id);
+  res.json(e);
 });
 
 // ---- payments -------------------------------------------------------------

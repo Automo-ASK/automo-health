@@ -1,23 +1,19 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
-import { AppShell } from "./AppShell";
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { LauncherScreen } from "./screens/LauncherScreen";
 import { DoctorScreen } from "./screens/DoctorScreen";
 import { LabScreen } from "./screens/LabScreen";
 import { CashierScreen } from "./screens/CashierScreen";
 import "./styles.css";
 
+// Every board is its own standalone screen — no shared shell, no sidebar.
+// Each one is meant to be opened on its room's computer and left running.
 const router = createBrowserRouter([
-  {
-    path: "/",
-    element: <AppShell />,
-    children: [
-      { index: true, element: <Navigate to="/doctor" replace /> },
-      { path: "doctor", element: <DoctorScreen /> },
-      { path: "lab", element: <LabScreen /> },
-      { path: "cashier", element: <CashierScreen /> },
-    ],
-  },
+  { path: "/", element: <LauncherScreen /> },
+  { path: "/doctor", element: <DoctorScreen /> },
+  { path: "/lab", element: <LabScreen /> },
+  { path: "/cashier", element: <CashierScreen /> },
 ]);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

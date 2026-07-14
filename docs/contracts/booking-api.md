@@ -139,15 +139,26 @@ the visit already ran (`in_progress | done | admitted`).
     "position": 1,
     "is_next": true,
     "patient_name": "Chidi Okafor",
+    "patient_phone": "2348012345670",
     "type": "physical",
+    "channel": "whatsapp",
     "service_name": "General Consultation",
     "slot_time": "2026-07-09T09:00:00+01:00",
-    "status": "checked_in"
+    "status": "checked_in",
+    "home_reading": null,
+    "test_details": null,
+    "collection_date": null
   }
 ]
 ```
 
 `status` ∈ `pending_payment | confirmed | checked_in | in_progress | done | admitted | cancelled | no_show`.
+
+*Added Day 7, confirm at standup:* `patient_phone` and `channel` (so the
+doctor can run a virtual consult by video on WhatsApp or by phone),
+`home_reading` (virtual consults — the reading the patient reported, PRD 8.4),
+`test_details` (lab visits — details attached before the patient arrives,
+PRD 9.2), and `collection_date` (lab visits, set at results-ready).
 
 ### Close a visit (doctor action)
 
@@ -161,7 +172,73 @@ the visit already ran (`in_progress | done | admitted`).
 fires only after consult + meds + next appointment are settled; the
 next-appointment step sits **before** `done`. Closing advances the queue.
 
+*Added Day 7, confirm at standup:* lab visits may pass
+`{ "state": "done", "collection_date": "2026-07-15" }` — the collection date
+the patient sees (PRD 9.2). The backend forwards it to the results-ready
+notification.
+
 `200` → updated appointment; response includes `"next": { "id": "apt_002", ... } | null`.
+
+### Day summary (cashier screen) — *added Day 7, confirm at standup*
+
+`GET /api/v1/appointments/day?date=2026-07-14` — every appointment on the
+date across all providers and states except `cancelled`, so the cashier sees
+who came through, who is still expected, and who still owes (PRD 9.3):
+
+```json
+[
+  {
+    "id": "apt_001",
+    "patient_name": "Chidi Okafor",
+    "service_name": "General Consultation",
+    "slot_time": "2026-07-14T09:00:00+01:00",
+    "type": "physical",
+    "channel": "whatsapp",
+    "status": "done",
+    "consultation_fee": 500000,
+    "paid": true
+  }
+]
+```
+
+---
+
+## Emergencies — *added Day 7, confirm at standup*
+
+PRD 8.6: a category plus one sentence, never free-text alone, and the doctor
+is alerted immediately. Channels create; the doctor board polls open ones and
+acknowledges. Never a replacement for clinical triage.
+
+`POST /api/v1/emergencies`
+
+```json
+{
+  "category": "Chest pain / breathing difficulty",
+  "description": "My father is having chest pain and struggling to breathe.",
+  "patient": { "phone": "2348012345676", "name": "Ibrahim Musa" }
+}
+```
+
+`400 { "error": "category_and_description_required" }` without both fields.
+
+`GET /api/v1/emergencies?status=open` →
+
+```json
+[
+  {
+    "id": "emg_001",
+    "patient_name": "Ibrahim Musa",
+    "patient_phone": "2348012345676",
+    "category": "Chest pain / breathing difficulty",
+    "description": "My father is having chest pain and struggling to breathe.",
+    "status": "open",
+    "created_at": "2026-07-14T16:40:00Z"
+  }
+]
+```
+
+`POST /api/v1/emergencies/:id/ack` → marks it `acknowledged` (doctor has seen
+it and is making room).
 
 ---
 
