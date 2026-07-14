@@ -71,6 +71,16 @@ class PaymentStatus(str, enum.Enum):
 class PaymentProvider(str, enum.Enum):
     PAYSTACK = "paystack"
     SQUAD = "squad"
+    CASH = "cash"          # collected at the desk by a cashier (Day 6)
+
+
+class LabOrderStatus(str, enum.Enum):
+    """Lifecycle of a lab test ordered off the back of an appointment."""
+
+    ORDERED = "ordered"        # requested by the clinician
+    COLLECTED = "collected"    # sample taken
+    RESULTED = "resulted"      # result entered
+    CANCELLED = "cancelled"
 
 
 class VirtualAccountStatus(str, enum.Enum):
@@ -87,5 +97,13 @@ class NotificationEvent(str, enum.Enum):
     BOOKING_CONFIRMED = "booking.confirmed"
     BOOKING_EXPIRED = "booking.expired"
     APPOINTMENT_SCHEDULED = "appointment.scheduled"
+    APPOINTMENT_COMPLETED = "appointment.completed"
+    APPOINTMENT_CANCELLED = "appointment.cancelled"
+    APPOINTMENT_RESCHEDULED = "appointment.rescheduled"
+    APPOINTMENT_NO_SHOW = "appointment.no_show"
+    APPOINTMENT_FOLLOW_UP = "appointment.follow_up"
     PAYMENT_SUCCEEDED = "payment.succeeded"
     PAYMENT_MISMATCH = "payment.mismatch"
+    PAYMENT_OVERPAID = "payment.overpaid"
+    LAB_ORDERED = "lab.ordered"
+    LAB_RESULTED = "lab.resulted"
