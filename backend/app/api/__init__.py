@@ -7,12 +7,14 @@ from app.api.routes import (
     cashier,
     labs,
     payments,
+    services,
     slots,
     sms,
     ussd,
 )
 
 api_router = APIRouter()
+api_router.include_router(services.router)
 api_router.include_router(slots.router)
 api_router.include_router(bookings.router)
 api_router.include_router(appointments.router)

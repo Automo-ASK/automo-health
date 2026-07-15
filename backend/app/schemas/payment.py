@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app.models.enums import PaymentProvider, PaymentStatus, VirtualAccountStatus
 from app.schemas.common import ORMModel
@@ -45,12 +45,27 @@ class VirtualAccountRead(ORMModel):
 
 
 class PaymentLinkRequest(BaseModel):
-    booking_id: uuid.UUID
+    """Accept either booking_id (internal callers) or appointment_id (WhatsApp channel)."""
+
+    booking_id: uuid.UUID | None = None
+    appointment_id: uuid.UUID | None = None  # WhatsApp alias for booking_id
     include_virtual_account: bool = True
+
+    @model_validator(mode="after")
+    def resolve_booking_id(self) -> "PaymentLinkRequest":
+        if self.booking_id is None and self.appointment_id is not None:
+            self.booking_id = self.appointment_id
+        if self.booking_id is None:
+            raise ValueError("Either booking_id or appointment_id is required")
+        return self
 
 
 class PaymentLinkResponse(BaseModel):
-    """In-chat-shareable payment payload."""
+    """In-chat-shareable payment payload.
+
+    Includes both the original internal fields and WhatsApp-channel aliases so
+    both callers get everything they need from a single endpoint.
+    """
 
     booking_id: uuid.UUID
     amount: int
@@ -59,6 +74,11 @@ class PaymentLinkResponse(BaseModel):
     checkout_url: str | None
     virtual_account: VirtualAccountRead | None
     chat_message: str
+    # WhatsApp-compatible shape
+    payment_id: uuid.UUID | None = None
+    method: str = "link"
+    url: str | None = None  # same as checkout_url
+    expires_at: datetime | None = None
 
 
 class ReconcileResponse(BaseModel):
