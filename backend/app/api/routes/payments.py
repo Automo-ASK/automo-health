@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.models.enums import PaymentStatus
 from app.models.payment import Payment
 from app.schemas.payment import (
     PaymentLinkRequest,
@@ -17,6 +18,14 @@ from app.schemas.payment import (
 )
 from app.services import paystack, payments as payments_service, reconciliation
 from app.services.exceptions import NotFoundError
+
+_WA_STATUS: dict[PaymentStatus, str] = {
+    PaymentStatus.PENDING: "pending",
+    PaymentStatus.SUCCESS: "paid",
+    PaymentStatus.FAILED: "failed",
+    PaymentStatus.ABANDONED: "expired",
+    PaymentStatus.REFUNDED: "paid",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +54,19 @@ def generate_payment_link(
     payload: PaymentLinkRequest, db: Session = Depends(get_db)
 ) -> PaymentLinkResponse:
     """Build a shareable payment payload (checkout link + bank transfer details +
-    a ready-to-send chat message) for a booking."""
+    a ready-to-send chat message) for a booking.
+
+    Accepts either ``booking_id`` or ``appointment_id`` (WhatsApp alias).
+    The response includes WhatsApp-compatible ``payment_id``, ``method``, ``url``,
+    and ``expires_at`` fields alongside the original shape.
+    """
     link = payments_service.generate_payment_link(
         db, payload.booking_id, include_virtual_account=payload.include_virtual_account
     )
+    # Fetch payment record for WhatsApp-specific fields.
+    from app.models.booking import Booking
+    booking = db.get(Booking, link.booking_id)
+    payment = booking.payment if booking else None
     return PaymentLinkResponse(
         booking_id=link.booking_id,
         amount=link.amount,
@@ -61,6 +79,11 @@ def generate_payment_link(
             else None
         ),
         chat_message=link.chat_message,
+        # WhatsApp shape
+        payment_id=payment.id if payment else None,
+        method="link",
+        url=link.checkout_url,
+        expires_at=booking.expires_at if booking else None,
     )
 
 
@@ -80,12 +103,33 @@ def verify_payment(reference: str, db: Session = Depends(get_db)) -> PaymentVeri
     )
 
 
-@router.get("/{payment_id}", response_model=PaymentRead, summary="Get a payment")
-def get_payment(payment_id: uuid.UUID, db: Session = Depends(get_db)) -> PaymentRead:
+@router.get("/{payment_id}", summary="Get a payment")
+def get_payment(payment_id: uuid.UUID, db: Session = Depends(get_db)) -> dict:
+    """Return payment data.
+
+    Includes WhatsApp-compatible aliases (``payment_id``, ``appointment_id``,
+    ``method``) and normalizes ``status`` to the values WhatsApp polls on:
+    ``pending`` / ``paid`` / ``failed`` / ``expired``.
+    """
     payment = db.get(Payment, payment_id)
     if payment is None:
         raise NotFoundError(f"Payment {payment_id} not found")
-    return payment
+    return {
+        "id": str(payment.id),
+        "payment_id": str(payment.id),
+        "booking_id": str(payment.booking_id),
+        "appointment_id": str(payment.booking_id),
+        "provider": payment.provider.value,
+        "status": _WA_STATUS.get(payment.status, payment.status.value),
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "method": "link",
+        "reference": payment.reference,
+        "authorization_url": payment.authorization_url,
+        "access_code": payment.access_code,
+        "paid_at": payment.paid_at.isoformat() if payment.paid_at else None,
+        "created_at": payment.created_at.isoformat(),
+    }
 
 
 @router.post("/webhook", summary="Paystack webhook receiver")

@@ -1,0 +1,12 @@
+name: automo-health
+
+# Port remapping so Evolution's infra doesn't clash with the locally-running
+# app Postgres (5432) and Redis (6379).
+services:
+  postgres:
+    ports:
+      - "5433:5432"   # Evolution's Postgres on 5433; app Postgres stays on 5432
+
+  redis:
+    ports:
+      - "6380:6379"   # Evolution's Redis on 6380; app Redis stays on 6379

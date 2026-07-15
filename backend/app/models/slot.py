@@ -63,3 +63,14 @@ class Slot(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     booking: Mapped["Booking | None"] = relationship(back_populates="slot", uselist=False)
 
     __mapper_args__ = {"version_id_col": version_id}
+
+    @property
+    def provider_name(self) -> str | None:
+        return self.provider.full_name if self.provider else None
+
+    @property
+    def duration_minutes(self) -> int | None:
+        if self.service is not None:
+            return self.service.duration_minutes
+        delta = self.end_time - self.start_time
+        return int(delta.total_seconds() / 60)

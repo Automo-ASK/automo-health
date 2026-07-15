@@ -96,6 +96,7 @@ app.post("/webhook/evolution", async (req: Request, res: Response) => {
       log("in <-", parsed.jid, JSON.stringify(parsed.text));
       const answer = await handleIncoming(parsed.jid, parsed.text);
       if (!answer) continue; // reply already went out proactively
+      log("reply >>", "\n" + answer); // log full reply before send
       await sendText(parsed.jid, answer);
       log("out ->", parsed.jid, JSON.stringify(answer.slice(0, 60)));
     }

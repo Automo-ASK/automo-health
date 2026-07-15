@@ -1,5 +1,6 @@
 import uuid
-from datetime import datetime
+from datetime import date as _date
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
@@ -23,10 +24,22 @@ def list_slots(
     service_id: uuid.UUID | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    date: _date | None = None,  # single WAT date (YYYY-MM-DD); expands to a day range
     only_open: bool = True,
     db: Session = Depends(get_db),
 ) -> list[SlotRead]:
-    """Return slots, optionally filtered by provider/service/date and open-only."""
+    """Return slots, optionally filtered by provider/service/date and open-only.
+
+    ``date`` is a convenience shortcut: ``?date=2024-07-15`` returns all slots
+    starting within that calendar day in WAT (UTC+1). It takes precedence over
+    ``date_from``/``date_to`` when provided.
+    """
+    if date is not None:
+        # WAT is UTC+1; expand the calendar day to a UTC half-open interval.
+        wat = timezone(timedelta(hours=1))
+        day_start = datetime(date.year, date.month, date.day, tzinfo=wat)
+        date_from = day_start
+        date_to = day_start + timedelta(days=1)
     return slots_service.list_slots(
         db,
         provider_id=provider_id,

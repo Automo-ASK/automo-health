@@ -36,6 +36,8 @@ class SlotRead(ORMModel):
     end_time: datetime
     status: SlotStatus
     hold_expires_at: datetime | None
+    provider_name: str | None = None
+    duration_minutes: int | None = None
 
 
 class SlotAvailabilityQuery(BaseModel):

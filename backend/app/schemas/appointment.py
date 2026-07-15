@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -36,3 +37,44 @@ class FollowUpCreate(BaseModel):
     new_slot_id: uuid.UUID
     service_id: uuid.UUID | None = None
     notes: str | None = None
+
+
+# ---- WhatsApp channel booking ------------------------------------------------
+
+class ChannelPatientInput(BaseModel):
+    phone: str
+    name: str
+    preferred_language: str = "en"
+    preferred_channel: str = "whatsapp"
+    consent: bool = True
+
+
+class ChannelBookingCreate(BaseModel):
+    """Payload sent by the WhatsApp channel to create a booking+hold."""
+
+    slot_id: uuid.UUID
+    service_id: uuid.UUID
+    type: Literal["physical", "virtual", "lab"] = "physical"
+    patient: ChannelPatientInput
+    channel: str = "whatsapp"
+
+
+class SlotSummary(BaseModel):
+    id: uuid.UUID
+    start_time: datetime
+    provider_name: str | None = None
+
+
+class AppointmentHold(BaseModel):
+    """Returned when a channel creates a booking (PENDING_PAYMENT hold)."""
+
+    id: uuid.UUID           # booking id — used as appointment reference in the channel
+    status: str
+    type: str
+    patient_id: uuid.UUID
+    slot: SlotSummary | None = None
+    amount: int
+    consultation_fee: int
+    platform_fee: int
+    currency: str
+    hold_expires_at: datetime | None
