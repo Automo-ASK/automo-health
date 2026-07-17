@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     debug: bool = True
     api_v1_prefix: str = "/api/v1"
 
+    # CORS — the staff dashboards (Vite dev server locally, Vercel in prod) call
+    # this API directly from the browser. Comma-separated in the env var.
+    cors_allowed_origins: str = (
+        "http://localhost:5173,https://automo-health-frontend.vercel.app"
+    )
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
+
     # Database
     database_url: str = (
         "postgresql+psycopg2://automo:automo@localhost:5432/automo_health"
