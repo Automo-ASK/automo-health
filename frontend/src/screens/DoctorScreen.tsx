@@ -3,10 +3,11 @@ import { api, timeOf, type QueueItem, type Emergency, type Slot } from "../api";
 import { Board, todayLong, ticketNo } from "../Board";
 import { IconCheck } from "../icons";
 
-const DOCTORS = [
-  { id: "prov_ade", name: "Dr. Adeyemi", specialty: "General Practice" },
-  { id: "prov_ola", name: "Dr. Olamide", specialty: "General Practice" },
-];
+interface Doctor {
+  id: string; // slug if the provider has one, else the UUID
+  name: string;
+  specialty: string;
+}
 
 const FOLLOW_UP_SERVICES = [
   { id: "svc_consult", label: "In person" },
@@ -38,7 +39,8 @@ const minutesAgo = (iso: string) => {
 };
 
 export function DoctorScreen() {
-  const [doctor, setDoctor] = useState(DOCTORS[0]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [emergencies, setEmergencies] = useState<Emergency[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,8 +60,23 @@ export function DoctorScreen() {
   const [fuSlots, setFuSlots] = useState<Slot[]>([]);
   const [fuLoading, setFuLoading] = useState(false);
 
+  // Real providers, not a hardcoded pair — any doctor seeded/added on the
+  // backend shows up here on its own.
+  useEffect(() => {
+    api
+      .providers()
+      .then((all) => {
+        const list = all
+          .filter((p) => p.role === "doctor")
+          .map((p) => ({ id: p.slug ?? p.id, name: p.full_name, specialty: p.specialty ?? "" }));
+        setDoctors(list);
+        setDoctor((current) => current ?? list[0] ?? null);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load providers"));
+  }, []);
+
   const load = useCallback(async () => {
-    if (busyRef.current) return; // don't clobber an in-flight action
+    if (busyRef.current || !doctor) return; // don't clobber an in-flight action
     try {
       setError(null);
       const [q, e, av] = await Promise.all([
@@ -75,11 +92,12 @@ export function DoctorScreen() {
     } finally {
       setLoading(false);
     }
-  }, [doctor.id, availDate]);
+  }, [doctor, availDate]);
 
   // Live queue: bookings confirmed over WhatsApp/USSD appear on their own,
   // emergencies surface immediately, and closing a visit advances everyone.
   useEffect(() => {
+    if (!doctor) return;
     setLoading(true);
     load();
     const timer = setInterval(load, REFRESH_MS);
@@ -89,7 +107,7 @@ export function DoctorScreen() {
       clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [load]);
+  }, [load, doctor]);
 
   const next = queue.find((q) => q.is_next);
   const rest = queue.filter((q) => !q.is_next);
@@ -100,7 +118,7 @@ export function DoctorScreen() {
   const nextId = next?.id;
   useEffect(() => {
     setFuOpen(false);
-  }, [nextId, doctor.id]);
+  }, [nextId, doctor]);
 
   // Fetch open slots for the follow-up picker whenever it's open.
   useEffect(() => {
@@ -161,6 +179,7 @@ export function DoctorScreen() {
 
   const makeRoom = (e: Emergency) =>
     withBusy(e.id, async () => {
+      if (!doctor) return;
       const r = await api.makeRoom(e.id, doctor.id);
       setInfo(
         r.bumped_to
@@ -178,6 +197,16 @@ export function DoctorScreen() {
 
   const openSlots = avail.filter((s) => s.status === "open").length;
 
+  if (!doctor) {
+    return (
+      <Board role="doctor" title="Doctor" count={0} countLabel="in queue">
+        <div className="empty">
+          {error ? `Backend not reachable — ${error}.` : "Loading doctors…"}
+        </div>
+      </Board>
+    );
+  }
+
   return (
     <Board
       role="doctor"
@@ -190,9 +219,9 @@ export function DoctorScreen() {
           <select
             className="band-select"
             value={doctor.id}
-            onChange={(e) => setDoctor(DOCTORS.find((d) => d.id === e.target.value) ?? DOCTORS[0])}
+            onChange={(e) => setDoctor(doctors.find((d) => d.id === e.target.value) ?? doctors[0])}
           >
-            {DOCTORS.map((d) => (
+            {doctors.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name} · {d.specialty}
               </option>

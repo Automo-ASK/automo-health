@@ -58,7 +58,9 @@ export async function interpret(input: InterpretInput): Promise<AIResponse> {
         history: input.history, // {role, content} — matches ConversationTurn
         language_hint: input.languageHint ?? null,
       },
-      { timeout: 20_000 }
+      // gemini-3-flash-preview (preview tier) can take 20-30s+ under load;
+      // 20s was cutting off legitimate slow responses as failures.
+      { timeout: 45_000 }
     );
     return data as AIResponse;
   }

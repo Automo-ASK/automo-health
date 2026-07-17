@@ -5,9 +5,11 @@ from app.models.appointment import Appointment
 from app.models.base import Base
 from app.models.booking import Booking
 from app.models.conversation import Conversation
+from app.models.emergency import Emergency
 from app.models.enums import (
     AppointmentStatus,
     BookingStatus,
+    EmergencyStatus,
     LabOrderStatus,
     NotificationEvent,
     PaymentProvider,
@@ -34,6 +36,7 @@ __all__ = [
     "Payment",
     "VirtualAccount",
     "LabOrder",
+    "Emergency",
     "SlotStatus",
     "BookingStatus",
     "AppointmentStatus",
@@ -41,5 +44,6 @@ __all__ = [
     "PaymentProvider",
     "VirtualAccountStatus",
     "LabOrderStatus",
+    "EmergencyStatus",
     "NotificationEvent",
 ]

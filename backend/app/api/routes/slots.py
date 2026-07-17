@@ -13,27 +13,43 @@ from app.schemas.slot import (
     SlotHoldResponse,
     SlotRead,
 )
+from app.services import dashboard as dashboard_service
 from app.services import slots as slots_service
+from app.services.exceptions import NotFoundError
 
 router = APIRouter(prefix="/slots", tags=["slots"])
 
 
 @router.get("", response_model=list[SlotRead], summary="List / search availability")
 def list_slots(
-    provider_id: uuid.UUID | None = None,
-    service_id: uuid.UUID | None = None,
+    provider_id: str | None = None,
+    service_id: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     date: _date | None = None,  # single WAT date (YYYY-MM-DD); expands to a day range
     only_open: bool = True,
+    include: str | None = None,  # "all" -> include held/booked (dashboard availability)
     db: Session = Depends(get_db),
 ) -> list[SlotRead]:
     """Return slots, optionally filtered by provider/service/date and open-only.
+
+    ``provider_id`` / ``service_id`` accept a stable slug (``prov_ade``,
+    ``svc_consult``) or a UUID. ``include=all`` returns every status (the doctor
+    availability grid); otherwise only OPEN slots are returned.
 
     ``date`` is a convenience shortcut: ``?date=2024-07-15`` returns all slots
     starting within that calendar day in WAT (UTC+1). It takes precedence over
     ``date_from``/``date_to`` when provided.
     """
+    try:
+        provider_uuid = dashboard_service.resolve_provider(db, provider_id).id if provider_id else None
+        service_uuid = dashboard_service.resolve_service(db, service_id).id if service_id else None
+    except NotFoundError:
+        return []  # unknown provider/service -> no availability, not an error
+
+    if include == "all":
+        only_open = False
+
     if date is not None:
         # WAT is UTC+1; expand the calendar day to a UTC half-open interval.
         wat = timezone(timedelta(hours=1))
@@ -42,8 +58,8 @@ def list_slots(
         date_to = day_start + timedelta(days=1)
     return slots_service.list_slots(
         db,
-        provider_id=provider_id,
-        service_id=service_id,
+        provider_id=provider_uuid,
+        service_id=service_uuid,
         date_from=date_from,
         date_to=date_to,
         only_open=only_open,

@@ -3,7 +3,6 @@ import { api, timeOf, type QueueItem } from "../api";
 import { Board, todayLong, ticketNo } from "../Board";
 import { IconCheck } from "../icons";
 
-const LAB_PROVIDER = "prov_lab";
 const REFRESH_MS = 5000;
 
 /** Tomorrow as yyyy-mm-dd — the default collection date offered to staff. */
@@ -22,6 +21,7 @@ const prettyDate = (ymd: string) =>
   });
 
 export function LabScreen() {
+  const [labProvider, setLabProvider] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,19 +30,32 @@ export function LabScreen() {
   const [confirming, setConfirming] = useState<{ id: string; date: string } | null>(null);
   const busyRef = useRef<string | null>(null);
 
+  // Real provider, not a hardcoded slug — whichever provider's services are
+  // all lab tests is "the lab desk".
+  useEffect(() => {
+    api
+      .providers()
+      .then((all) => {
+        const lab = all.find((p) => p.role === "lab");
+        setLabProvider(lab ? lab.slug ?? lab.id : null);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load providers"));
+  }, []);
+
   const load = useCallback(async () => {
-    if (busyRef.current) return;
+    if (busyRef.current || !labProvider) return;
     try {
       setError(null);
-      setQueue(await api.queue(LAB_PROVIDER));
+      setQueue(await api.queue(labProvider));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load lab queue");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [labProvider]);
 
   useEffect(() => {
+    if (!labProvider) return;
     load();
     const timer = setInterval(load, REFRESH_MS);
     const onFocus = () => load();

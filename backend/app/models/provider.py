@@ -17,6 +17,9 @@ class Provider(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    # Stable human-readable identifier (e.g. "prov_ade") the dashboards address a
+    # provider by, so their config survives re-seeds that regenerate UUIDs.
+    slug: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     specialty: Mapped[str | None] = mapped_column(String(255), nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
 

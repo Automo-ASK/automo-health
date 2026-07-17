@@ -8,7 +8,7 @@ name: automo-health
 
 services:
   evolution-api:
-    image: evoapicloud/evolution-api:${EVOLUTION_VERSION:-v2.2.3}
+    image: evoapicloud/evolution-api:${EVOLUTION_VERSION:-v2.3.7}
     container_name: automo-evolution
     restart: unless-stopped
     ports:
@@ -19,9 +19,12 @@ services:
       AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
 
       # ---- The important one ----
-      # WhatsApp Web version pin. Avoids the "connection closed / bad session"
-      # Baileys bugs that hit when WhatsApp ships a newer web build.
-      CONFIG_SESSION_PHONE_VERSION: ${WA_WEB_VERSION:-2.3000.1041645497}
+      # WhatsApp Web version pin. Leave WA_WEB_VERSION unset to auto-detect the
+      # current build via Baileys' fetchLatestBaileysVersion() — a stale pin here
+      # causes WhatsApp to reject new device links ("Can't link a device right
+      # now"). Only set WA_WEB_VERSION if you hit the "connection closed / bad
+      # session" bug from a brand-new WhatsApp web build and need to pin back.
+      CONFIG_SESSION_PHONE_VERSION: ${WA_WEB_VERSION:-}
 
       # ---- Persistence (Evolution v2 requires a provider) ----
       DATABASE_ENABLED: "true"

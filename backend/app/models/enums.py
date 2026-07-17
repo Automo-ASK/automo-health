@@ -54,6 +54,7 @@ class AppointmentStatus(str, enum.Enum):
 
     SCHEDULED = "scheduled"
     COMPLETED = "completed"
+    ADMITTED = "admitted"      # closed as admitted / sent for a procedure (dashboard)
     CANCELLED = "cancelled"
     NO_SHOW = "no_show"
 
@@ -81,6 +82,13 @@ class LabOrderStatus(str, enum.Enum):
     COLLECTED = "collected"    # sample taken
     RESULTED = "resulted"      # result entered
     CANCELLED = "cancelled"
+
+
+class EmergencyStatus(str, enum.Enum):
+    """Lifecycle of an emergency alert raised over a channel (PRD §8.6)."""
+
+    OPEN = "open"                  # awaiting the doctor's attention
+    ACKNOWLEDGED = "acknowledged"  # seen / handled (seated, or handled outside)
 
 
 class VirtualAccountStatus(str, enum.Enum):

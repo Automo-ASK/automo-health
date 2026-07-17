@@ -1,6 +1,7 @@
 import json
 import logging
 import uuid
+from datetime import date as _date
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.enums import PaymentStatus
 from app.models.payment import Payment
+from app.schemas.dashboard import PaymentRow as DashboardPaymentRow
 from app.schemas.payment import (
     PaymentLinkRequest,
     PaymentLinkResponse,
@@ -16,7 +18,7 @@ from app.schemas.payment import (
     VirtualAccountRead,
     VirtualAccountRequest,
 )
-from app.services import paystack, payments as payments_service, reconciliation
+from app.services import dashboard, paystack, payments as payments_service, reconciliation
 from app.services.exceptions import NotFoundError
 
 _WA_STATUS: dict[PaymentStatus, str] = {
@@ -30,6 +32,14 @@ _WA_STATUS: dict[PaymentStatus, str] = {
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/payments", tags=["payments"])
+
+
+@router.get("", response_model=list[DashboardPaymentRow], summary="Cleared payments for a day (cashier)")
+def list_cleared_payments(
+    date: _date | None = None, db: Session = Depends(get_db)
+) -> list[DashboardPaymentRow]:
+    """The day's settled payments — the cashier's cleared ledger. Defaults to today."""
+    return [DashboardPaymentRow(**row) for row in dashboard.cleared_payments(db, date)]
 
 
 @router.post(

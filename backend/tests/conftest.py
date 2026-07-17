@@ -37,6 +37,19 @@ def db():
         connection.close()
 
 
+@pytest.fixture
+def client():
+    """FastAPI TestClient. Route tests override ``get_db`` themselves via
+    ``app.dependency_overrides`` (see test_sms_inbound.py)."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
 def _uid() -> str:
     return uuid.uuid4().hex[:12]
 

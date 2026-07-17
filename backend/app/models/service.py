@@ -21,6 +21,9 @@ class Service(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("providers.id", ondelete="CASCADE"), index=True, nullable=False
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Stable human-readable identifier (e.g. "svc_consult") the dashboards address a
+    # service by, independent of the generated UUID primary key.
+    slug: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     # Monetary amounts are stored as integer minor units (e.g. kobo for NGN).

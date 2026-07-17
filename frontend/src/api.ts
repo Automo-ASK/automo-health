@@ -71,6 +71,14 @@ export interface MakeRoomResult {
   bumped_to: { patient_name: string; new_time: string } | null;
 }
 
+export interface Provider {
+  id: string;
+  slug: string | null;
+  full_name: string;
+  specialty: string | null;
+  role: "doctor" | "lab";
+}
+
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
@@ -133,6 +141,9 @@ export const api = {
     fetch(`${BASE}/api/v1/services`).then((r) =>
       j<Array<{ id: string; name: string; fee: number; type: string }>>(r)
     ),
+
+  /** Real providers, so the doctor/lab boards never hardcode who's on staff. */
+  providers: () => fetch(`${BASE}/api/v1/providers`).then((r) => j<Provider[]>(r)),
 
   /** Cleared payments for a date (default today) — the cashier's day view. */
   payments: (date?: string) =>

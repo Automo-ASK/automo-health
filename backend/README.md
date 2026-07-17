@@ -56,7 +56,11 @@ uvicorn app.main:app --reload
 ## Data model
 
 `patients`, `providers`, `services`, `slots`, `bookings`, `appointments`,
-`payments`, `virtual_accounts`, `lab_orders`, `conversations`.
+`payments`, `virtual_accounts`, `lab_orders`, `conversations`, `emergencies`.
+
+> `providers` and `services` carry a stable **`slug`** (`prov_ade`, `svc_consult`)
+> so the staff dashboards can address them by a fixed identifier that survives
+> re-seeds. Dashboard-facing endpoints accept a slug **or** a UUID.
 
 - **Slot** lifecycle: `open → held → booked` (or back to `open` on hold expiry);
   carries `hold_expires_at` and a `version_id` for optimistic locking.
@@ -137,6 +141,35 @@ celery -A app.core.celery_app.celery_app worker --beat --loglevel=info
 - `POST /labs/orders/{id}/collect` — mark the sample collected.
 - `POST /labs/orders/{id}/result` — enter the result (`ordered → resulted`).
 - `GET /labs/orders` — filter by appointment / patient / status.
+
+## Staff dashboards (one backend)
+
+The doctor / lab / cashier screens in `frontend/` consume **this** backend directly
+(the throwaway `backend-stub` is retired). Endpoints, all under `/api/v1`:
+
+- `GET /appointments?provider_id=<slug|uuid>` — a provider's live **queue**, enriched
+  (position, is_next, patient, visit type, home reading / test details).
+- `GET /appointments/day?date=` — every appointment on the day + still-owing holds
+  (cashier). `POST /appointments/{id}/close` — Done / follow-up / Admitted (and the
+  lab's collection date); advances the queue.
+- `GET /slots?provider_id=<slug>&service_id=<slug>&include=all` — availability grid.
+- `GET /payments?date=` — the day's cleared payments (cashier ledger).
+- `GET /emergencies?status=open`, `POST /emergencies/{id}/ack`,
+  `POST /emergencies/{id}/make-room` — PRD §8.6 seat-now / shift-the-queue.
+
+Seed the dashboards (slug'd providers/services, a few days of slots, today's demo
+queue + an emergency — idempotent):
+
+```bash
+python -m scripts.seed_dashboard
+```
+
+Run the pair (frontend proxies `/api` → `http://localhost:8000` by default):
+
+```bash
+uvicorn app.main:app --reload           # this backend, :8000
+npm run dev -w frontend                  # dashboards, :5173  (from repo root)
+```
 
 ## Channels & messaging
 

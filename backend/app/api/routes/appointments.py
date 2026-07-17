@@ -1,24 +1,30 @@
 import uuid
+from datetime import date as _date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.enums import AppointmentStatus
 from app.schemas.appointment import (
     AppointmentComplete,
     AppointmentHold,
     AppointmentRead,
     AppointmentReschedule,
     ChannelBookingCreate,
-    FollowUpCreate,
     SlotSummary,
+)
+from app.schemas.dashboard import (
+    CloseVisitRequest,
+    DashboardFollowUpRequest,
+    DayRow,
+    QueueItem,
 )
 from app.models.slot import Slot
 from app.services import appointments as appointments_service
 from app.services import bookings as bookings_service
+from app.services import dashboard as dashboard_service
 from app.services import patients as patients_service
-from app.services.exceptions import SlotUnavailableError
+from app.services.exceptions import NotFoundError, SlotUnavailableError
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 
@@ -78,17 +84,28 @@ def create_channel_booking(
     )
 
 
-@router.get("", response_model=list[AppointmentRead], summary="List appointments")
-def list_appointments(
-    patient_id: uuid.UUID | None = None,
-    provider_id: uuid.UUID | None = None,
-    status: AppointmentStatus | None = None,
+@router.get("", response_model=list[QueueItem], summary="Provider queue (doctor / lab board)")
+def provider_queue(
+    provider_id: str,
+    date: _date | None = None,
     db: Session = Depends(get_db),
-) -> list[AppointmentRead]:
-    """List appointments, optionally filtered by patient, provider, or status."""
-    return appointments_service.list_appointments(
-        db, patient_id=patient_id, provider_id=provider_id, status=status
-    )
+) -> list[QueueItem]:
+    """Today's live queue for a provider (accepts a slug like ``prov_ade`` or a UUID).
+
+    Rows are enriched for the board: position, is_next, patient, visit type, and any
+    home reading / test details. Paid bookings from the channels appear on their own.
+    """
+    try:
+        rows = dashboard_service.provider_queue(db, provider_id, date)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return [QueueItem(**r) for r in rows]
+
+
+@router.get("/day", response_model=list[DayRow], summary="Day summary (cashier)")
+def appointments_day(date: _date | None = None, db: Session = Depends(get_db)) -> list[DayRow]:
+    """Every appointment on the day (all providers) plus still-owing holds."""
+    return [DayRow(**r) for r in dashboard_service.day_summary(db, date)]
 
 
 @router.get("/{appointment_id}", response_model=AppointmentRead, summary="Get an appointment")
@@ -159,21 +176,57 @@ def reschedule_appointment(
 
 
 @router.post(
+    "/{appointment_id}/close",
+    summary="Close a visit (doctor / lab): done / follow-up / admitted",
+)
+def close_visit(
+    appointment_id: uuid.UUID,
+    payload: CloseVisitRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    """Tick Done / Admitted (and, for the lab, set the collection date). Advances the queue."""
+    payload = payload or CloseVisitRequest()
+    return dashboard_service.close_visit(
+        db, appointment_id, state=payload.state, collection_date=payload.collection_date
+    )
+
+
+@router.post(
     "/{appointment_id}/follow-up",
-    response_model=AppointmentRead,
     status_code=201,
     summary="Book a follow-up appointment",
 )
 def create_follow_up(
     appointment_id: uuid.UUID,
-    payload: FollowUpCreate,
+    payload: DashboardFollowUpRequest,
     db: Session = Depends(get_db),
-) -> AppointmentRead:
-    """Book a follow-up for the same patient off this appointment (clinician action)."""
-    return appointments_service.create_follow_up(
-        db,
-        appointment_id,
-        new_slot_id=payload.new_slot_id,
-        service_id=payload.service_id,
-        notes=payload.notes,
+):
+    """Book a follow-up for the same patient off this appointment (clinician action).
+
+    Accepts ``slot_id`` (dashboard) or ``new_slot_id``; ``service_id`` may be a slug.
+    Returns the booked appointment with ``provider_name`` / ``service_name`` for the UI.
+    """
+    slot_id = payload.slot_id or payload.new_slot_id
+    if slot_id is None:
+        raise HTTPException(status_code=422, detail="slot_id is required")
+
+    service_uuid = None
+    if payload.service_id:
+        try:
+            service_uuid = dashboard_service.resolve_service(db, payload.service_id).id
+        except NotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+
+    appt = appointments_service.create_follow_up(
+        db, appointment_id, new_slot_id=slot_id, service_id=service_uuid, notes=None
     )
+    slot = db.get(Slot, appt.slot_id)
+    provider_name = slot.provider_name if slot else None
+    service_name = slot.service.name if slot and slot.service else None
+    return {
+        "id": str(appt.id),
+        "provider_name": provider_name,
+        "service_name": service_name,
+        "slot_time": appt.scheduled_start.isoformat(),
+        "status": "confirmed",
+    }

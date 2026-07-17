@@ -48,7 +48,10 @@ def list_slots(
     if date_to is not None:
         stmt = stmt.where(Slot.start_time < date_to)
     if only_open:
-        stmt = stmt.where(Slot.status == SlotStatus.OPEN)
+        # "Available" must also mean "not already in the past" — a slot can sit
+        # OPEN indefinitely if nobody ever booked it, and would otherwise keep
+        # getting offered (and be bookable) long after its start time has passed.
+        stmt = stmt.where(Slot.status == SlotStatus.OPEN, Slot.start_time > _utcnow())
     stmt = stmt.order_by(Slot.start_time)
     return list(db.execute(stmt).scalars().all())
 
@@ -169,7 +172,10 @@ def release_slot(db: Session, *, slot_id: uuid.UUID) -> Slot:
 
 
 def _is_holdable(slot: Slot, now: datetime) -> bool:
-    """A slot can be held if it's OPEN, or HELD but its hold has already expired."""
+    """A slot can be held if it's OPEN (and not already in the past), or HELD
+    but its hold has already expired."""
+    if slot.start_time <= now:
+        return False
     if slot.status == SlotStatus.OPEN:
         return True
     if slot.status == SlotStatus.HELD:

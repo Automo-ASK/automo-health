@@ -1,5 +1,6 @@
 """Payment provisioning: per-booking virtual accounts and in-chat links (Day 3)."""
 
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -10,6 +11,8 @@ from app.models.enums import BookingStatus, PaymentProvider, VirtualAccountStatu
 from app.models.virtual_account import VirtualAccount
 from app.services import paystack
 from app.services.exceptions import ConflictError, NotFoundError, PaymentError
+
+logger = logging.getLogger(__name__)
 
 
 def _get_booking(db: Session, booking_id: uuid.UUID) -> Booking:
@@ -103,7 +106,15 @@ def generate_payment_link(
 
     va = booking.virtual_account
     if include_virtual_account and va is None:
-        va = create_virtual_account(db, booking_id)
+        # Bank transfer is a best-effort extra alongside the checkout link — some
+        # Paystack accounts don't have Dedicated NUBAN enabled (a permanent,
+        # account-level restriction, not a transient failure). Degrade to the
+        # checkout link alone rather than failing the whole payment link.
+        try:
+            va = create_virtual_account(db, booking_id)
+        except PaymentError as exc:
+            logger.warning("Virtual account unavailable for booking %s: %s", booking_id, exc)
+            va = None
 
     amount_str = _format_amount(booking.amount, booking.currency)
     lines = [f"💳 Payment for your appointment — {amount_str}"]

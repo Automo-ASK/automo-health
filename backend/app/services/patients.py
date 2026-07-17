@@ -18,9 +18,15 @@ from app.models.patient import Patient
 
 
 def _synthetic_email(phone: str) -> str:
-    """Derive a deterministic internal email from an E.164 phone number."""
+    """Derive a deterministic internal email from an E.164 phone number.
+
+    Uses a real TLD (``.health``) — Paystack's live transaction/initialize
+    validates the email format and rejects made-up TLDs like ``.automo`` with
+    "Invalid Email Address Passed", which only surfaces once Paystack is out
+    of mock mode.
+    """
     normalised = phone.lstrip("+").replace(" ", "")
-    return f"{normalised}@channel.automo"
+    return f"{normalised}@patients.automo.health"
 
 
 def get_or_create_by_phone(db: Session, phone: str) -> Patient:
